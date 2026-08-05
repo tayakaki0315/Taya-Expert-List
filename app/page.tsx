@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { DataConnection, Peer as PeerInstance } from "peerjs";
 
 type Language = "ja" | "en" | "zh";
 type SheetMode = "single" | "perExpert" | "custom";
 type WorkflowMode = "create" | "update";
 type UpdateSummaryLanguage = "ja" | "en";
-type ToolView = "excel" | "slack" | "navi";
+type ToolView = "excel" | "slack" | "navi" | "jai";
 type NaviLanguage = "en" | "ja" | "zh_cn" | "zh_tw" | "mn";
 type NaviMode = "PAST" | "CURRENT" | "BOTH";
 
@@ -52,6 +53,185 @@ type SlackHistoryItem = {
   date: string;
   detail: string;
 };
+
+type JaiExpertRecord = {
+  id: string;
+  number: string;
+  dateFound: string;
+  applicationCodes: string[];
+  company: string;
+  status: "Former" | "Current";
+  name: string;
+  position: string;
+  cost: string;
+  screening: string;
+  warnings: string[];
+};
+
+const JAI_APPLICATION_AREAS = [
+  ["A", "Transmission belt - motorcycle & scooter"],
+  ["B", "Transmission belt - agriculture"],
+  ["C", "Transmission belt - automotive"],
+  ["D", "Transmission belt - ATV / powersports"],
+  ["E", "Ropes - LNG mooring"],
+  ["F", "Ropes - offshore lifting"],
+  ["G", "RTP - reinforced thermoplastic pipe"],
+  ["H", "Protective apparel - firefighting"],
+  ["I", "Protective apparel - military & police"],
+  ["J", "Protective apparel - industrial workwear"],
+  ["K", "Data centre / fibre optic cables"],
+  ["L", "PCB & semiconductor packaging"],
+  ["M", "Consumer electronics - high temperature insulation"],
+  ["N", "Thermoplastic reinforcement"],
+] as const;
+
+const JAI_TEXT = {
+  en: {
+    version: "v1.2",
+    subtitle:
+      "Convert expert profiles into the client’s Expert Tracker format.",
+    privacy:
+      "Everything is processed in your browser. Nothing is uploaded or stored.",
+    pasteTitle: "1. Paste expert information",
+    pasteHelp:
+      "Paste one or many profiles beginning with “#number - Name - Current/Former title at Company”.",
+    rawLabel: "Expert information",
+    rawPlaceholder: "Paste expert information here…",
+    parse: "Parse experts",
+    clear: "Clear all",
+    reviewTitle: "2. Review and edit",
+    reviewHelp:
+      "Confirm every field and select one or more application-area codes before creating the client workbook.",
+    parsed: "experts extracted. Review the fields below.",
+    parseError:
+      "No expert profile beginning with “#number - Name - …” was found.",
+    remove: "Remove expert",
+    vendor: "Vendor company",
+    date: "Date expert was found",
+    application: "Application area (code)",
+    applicationHelp: "Multiple selections are allowed.",
+    company: "Company relevant for expert",
+    status: "Former / Current",
+    name: "Name of expert",
+    position: "Position of expert",
+    cost: "Cost of interview",
+    screening: "Screening answers",
+    fixed: "Fixed",
+    required: "Required",
+    exportTitle: "3. Create client Excel",
+    exportHelp:
+      "The original three-sheet client template is preserved and the Expert tracker sheet is populated automatically.",
+    copyHelp:
+      "Copy data rows without headers and paste them into cell A6 of the client workbook.",
+    fileName: "File name",
+    copyExcel: "Copy A–I for Excel",
+    copiedExcel: "A–I copied. Paste into cell A6.",
+    copyError: "The Excel rows could not be copied. Please try again.",
+    export: "Download client Excel",
+    exporting: "Creating Excel…",
+    exported: "The client Excel was created and the download has started.",
+    exportError: "The client Excel could not be created. Please try again.",
+    missing:
+      "Complete the highlighted fields and choose at least one application area for every expert.",
+    empty: "Parse expert information first.",
+    noResults: "Parsed experts will appear here.",
+  },
+  ja: {
+    version: "v1.2",
+    subtitle:
+      "エキスパート情報をクライアント指定の Expert Tracker 形式に変換します。",
+    privacy:
+      "入力内容はブラウザ内だけで処理され、サーバーへ送信・保存されません。",
+    pasteTitle: "1. エキスパート情報を貼り付け",
+    pasteHelp:
+      "「#番号 - Name - Current/Former title at Company」で始まる情報を1名または複数名貼り付けてください。",
+    rawLabel: "エキスパート情報",
+    rawPlaceholder: "ここにエキスパート情報を貼り付けてください…",
+    parse: "解析する",
+    clear: "すべてクリア",
+    reviewTitle: "2. 抽出結果を確認・修正",
+    reviewHelp:
+      "出力前に全項目を確認し、各エキスパートの Application area を1つ以上選択してください。",
+    parsed: "名を抽出しました。下記の内容をご確認ください。",
+    parseError:
+      "「#番号 - Name - …」で始まるエキスパート情報が見つかりませんでした。",
+    remove: "エキスパートを削除",
+    vendor: "Vendor company",
+    date: "Date expert was found",
+    application: "Application area (code)",
+    applicationHelp: "複数選択できます。",
+    company: "Company relevant for expert",
+    status: "Former / Current",
+    name: "Name of expert",
+    position: "Position of expert",
+    cost: "Cost of interview",
+    screening: "Screening answers",
+    fixed: "固定",
+    required: "必須",
+    exportTitle: "3. クライアントExcelを作成",
+    exportHelp:
+      "元の3つのSheetと書式を維持し、Expert tracker Sheetへ自動入力します。",
+    copyHelp:
+      "ヘッダーを含まないデータ行をコピーします。クライアントExcelのA6セルへ貼り付けてください。",
+    fileName: "ファイル名",
+    copyExcel: "Excel用 A–I をコピー",
+    copiedExcel: "A–Iをコピーしました。A6セルに貼り付けてください。",
+    copyError: "Excel用データをコピーできませんでした。もう一度お試しください。",
+    export: "クライアントExcelをダウンロード",
+    exporting: "Excelを作成中…",
+    exported: "クライアントExcelを作成し、ダウンロードを開始しました。",
+    exportError: "Excelの作成に失敗しました。もう一度お試しください。",
+    missing:
+      "強調表示された項目を入力し、各エキスパートのApplication areaを1つ以上選択してください。",
+    empty: "先にエキスパート情報を解析してください。",
+    noResults: "解析後、ここにエキスパートが表示されます。",
+  },
+  zh: {
+    version: "v1.2",
+    subtitle: "将专家信息自动转换为客户指定的 Expert Tracker 格式。",
+    privacy: "所有内容只在当前浏览器中处理，不会上传或保存到服务器。",
+    pasteTitle: "1. 粘贴专家信息",
+    pasteHelp:
+      "可一次粘贴一名或多名以“#编号 - Name - Current/Former title at Company”开头的专家信息。",
+    rawLabel: "专家信息",
+    rawPlaceholder: "在这里粘贴专家信息…",
+    parse: "识别专家",
+    clear: "全部清除",
+    reviewTitle: "2. 确认并编辑",
+    reviewHelp:
+      "生成前请确认所有字段，并为每名专家至少选择一个 Application area。",
+    parsed: "名专家已识别，请确认以下内容。",
+    parseError: "没有识别到以“#编号 - Name - …”开头的专家信息。",
+    remove: "删除专家",
+    vendor: "Vendor company",
+    date: "Date expert was found",
+    application: "Application area (code)",
+    applicationHelp: "可以多选。",
+    company: "Company relevant for expert",
+    status: "Former / Current",
+    name: "Name of expert",
+    position: "Position of expert",
+    cost: "Cost of interview",
+    screening: "Screening answers",
+    fixed: "固定",
+    required: "必填",
+    exportTitle: "3. 生成客户 Excel",
+    exportHelp:
+      "保留客户原始模板的三个 Sheet 和格式，并自动填写 Expert tracker。",
+    copyHelp: "复制不含表头的数据行，然后粘贴到客户 Excel 的 A6 单元格。",
+    fileName: "文件名",
+    copyExcel: "复制 A–I 到 Excel",
+    copiedExcel: "A–I 已复制，请粘贴到 A6 单元格。",
+    copyError: "无法复制 Excel 数据，请重试。",
+    export: "下载客户 Excel",
+    exporting: "正在生成 Excel…",
+    exported: "客户 Excel 已生成并开始下载。",
+    exportError: "客户 Excel 生成失败，请重试。",
+    missing: "请填写高亮字段，并为每名专家至少选择一个 Application area。",
+    empty: "请先识别专家信息。",
+    noResults: "识别后的专家会显示在这里。",
+  },
+} as const;
 
 const DATA_FIELDS = [
   "number",
@@ -542,7 +722,7 @@ const naviTranslations = {
     clearHistory: "Clear history",
     confirmClear: "Clear all inputs?",
     confirmHistory: "Clear all search history?",
-    companyRequired: "Enter at least one company name.",
+    searchRequired: "Enter at least one company name or keyword.",
   },
   ja: {
     title: "LinkedIn 検索ビルダー",
@@ -575,7 +755,7 @@ const naviTranslations = {
     clearHistory: "履歴を削除",
     confirmClear: "入力内容をすべてクリアしますか？",
     confirmHistory: "検索履歴をすべて削除しますか？",
-    companyRequired: "会社名を1社以上入力してください。",
+    searchRequired: "会社名またはキーワードを1つ以上入力してください。",
   },
   zh_cn: {
     title: "LinkedIn 搜索生成器",
@@ -608,7 +788,7 @@ const naviTranslations = {
     clearHistory: "清空记录",
     confirmClear: "确定清空全部输入内容吗？",
     confirmHistory: "确定清空全部搜索记录吗？",
-    companyRequired: "请至少输入一家公司。",
+    searchRequired: "请至少输入一个公司名称或关键词。",
   },
   zh_tw: {
     title: "LinkedIn 搜尋產生器",
@@ -641,7 +821,7 @@ const naviTranslations = {
     clearHistory: "清除紀錄",
     confirmClear: "確定清除全部輸入內容嗎？",
     confirmHistory: "確定清除全部搜尋紀錄嗎？",
-    companyRequired: "請至少輸入一家公司。",
+    searchRequired: "請至少輸入一個公司名稱或關鍵字。",
   },
   mn: {
     title: "LinkedIn хайлтын үүсгэгч",
@@ -674,7 +854,7 @@ const naviTranslations = {
     clearHistory: "Түүх цэвэрлэх",
     confirmClear: "Бүх оруулгыг цэвэрлэх үү?",
     confirmHistory: "Бүх хайлтын түүхийг цэвэрлэх үү?",
-    companyRequired: "Дор хаяж нэг компанийн нэр оруулна уу.",
+    searchRequired: "Дор хаяж нэг компанийн нэр эсвэл түлхүүр үг оруулна уу.",
   },
 } as const;
 
@@ -1057,6 +1237,133 @@ function parseExperts(raw: string) {
     .filter((record): record is ExpertRecord => Boolean(record));
 }
 
+function todayForDateInput() {
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 10);
+}
+
+function normalizeJaiCost(value: string) {
+  const match = value.match(/([A-Z]{3})\s*([\d,.]+)/i);
+  if (!match) return cleanText(value.replace(/^Hourly Fee\s*:\s*/i, ""));
+
+  const currency = match[1].toUpperCase();
+  const amount = Number(match[2].replace(/,/g, ""));
+  if (!Number.isFinite(amount)) return `${currency} ${match[2]}`;
+  const hasDecimals = Math.abs(amount % 1) > Number.EPSILON;
+  return `${currency} ${amount.toLocaleString("en-US", {
+    minimumFractionDigits: hasDecimals ? 2 : 0,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function calculateJaiWarnings(
+  record: Omit<JaiExpertRecord, "warnings"> | JaiExpertRecord,
+) {
+  const warnings: string[] = [];
+  if (!record.dateFound) warnings.push("Date expert was found");
+  if (!record.applicationCodes.length) warnings.push("Application area");
+  if (!record.company) warnings.push("Company");
+  if (!record.status) warnings.push("Former / Current");
+  if (!record.name) warnings.push("Name");
+  if (!record.position) warnings.push("Position");
+  if (!record.cost) warnings.push("Cost");
+  if (!record.screening) warnings.push("Screening answers");
+  return warnings;
+}
+
+function parseJaiExperts(raw: string) {
+  return splitExpertBlocks(raw).flatMap((block, index) => {
+    const base = parseExpert(block, index);
+    if (!base) return [];
+
+    const role = base.title
+      .replace(/^(?:\s*\[[^\]]+\]\s*)+/u, "")
+      .replace(/^[\s✅✔☑\uFE0F]+/u, "")
+      .trim();
+    const roleMatch = role.match(/^(Former|Current)\s+(.+?)\s+at\s+(.+)$/i);
+    const status: JaiExpertRecord["status"] =
+      roleMatch?.[1]?.toLowerCase() === "former" ||
+      (!roleMatch && /\bFormer\b/i.test(role))
+        ? "Former"
+        : "Current";
+    const position = cleanText(
+      roleMatch?.[2] ??
+        role
+          .replace(/^(?:Former|Current)\s+/i, "")
+          .replace(/\s+at\s+.+$/i, ""),
+    );
+    const company = cleanText(roleMatch?.[3] ?? base.company);
+
+    const draft: Omit<JaiExpertRecord, "warnings"> = {
+      id: `jai-${index}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      number: base.number,
+      dateFound: todayForDateInput(),
+      applicationCodes: [],
+      company,
+      status,
+      name: base.name,
+      position,
+      cost: normalizeJaiCost(base.fee),
+      screening: base.screening,
+    };
+
+    return [{ ...draft, warnings: calculateJaiWarnings(draft) }];
+  });
+}
+
+function formatJaiDateForExcel(value: string) {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return value;
+  return `${Number(match[3])}/${Number(match[2])}/${match[1]}`;
+}
+
+function jaiExcelRows(records: JaiExpertRecord[]) {
+  return records.map((record) => [
+    "ThirdBridge",
+    formatJaiDateForExcel(record.dateFound),
+    record.applicationCodes.join(", "),
+    record.company,
+    record.status,
+    record.name,
+    record.position,
+    record.cost,
+    record.screening,
+  ]);
+}
+
+function escapeJaiTsvCell(value: string) {
+  const normalized = value.replace(/\r\n?/g, "\n");
+  return /["\t\n]/.test(normalized)
+    ? `"${normalized.replace(/"/g, '""')}"`
+    : normalized;
+}
+
+function formatJaiExcelPlainText(records: JaiExpertRecord[]) {
+  return jaiExcelRows(records)
+    .map((row) => row.map(escapeJaiTsvCell).join("\t"))
+    .join("\n");
+}
+
+function formatJaiExcelHtml(records: JaiExpertRecord[]) {
+  const rows = jaiExcelRows(records)
+    .map(
+      (row) =>
+        `<tr>${row
+          .map(
+            (value, columnIndex) =>
+              `<td${columnIndex === 8 ? ' class="jai-screening"' : ""}>${escapeHtml(value).replace(/\n/g, "<br>")}</td>`,
+          )
+          .join("")}</tr>`,
+    )
+    .join("");
+  return `<html><head><style>
+    br { mso-data-placement: same-cell; }
+    td { vertical-align: top; white-space: nowrap; mso-number-format: "\\@"; }
+    td.jai-screening { white-space: normal; mso-wrap-style: wrap; }
+  </style></head><body><table><tbody>${rows}</tbody></table></body></html>`;
+}
+
 function extractScreeningLabel(block: string) {
   const labeled = block.match(
     /Screening update(?:\s*\([^)]*\)|\s+\d{1,2}\/\d{1,2}\/\d{2,4})?\s*:?/i,
@@ -1254,12 +1561,24 @@ function formatSlackExpert(record: SlackExpertRecord) {
 
 function formatSlackExpertForCombinedCopy(record: SlackExpertRecord) {
   const body = formatSlackExpertBody(record);
-  const quotedBody = body
-    ? body
-        .split("\n")
-        .map((line) => (line ? `> ${line}` : ">"))
-        .join("\n")
+  const screening = record.screeningText.trim();
+  const screeningBlock = screening
+    ? `\`\`\`\n${record.screeningLabel}\n\n${screening}\n\`\`\``
     : "";
+  const bodyParts = screeningBlock ? body.split(screeningBlock) : [body];
+  const quote = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return "";
+    return trimmed
+      .trim()
+      .split("\n")
+      .map((line) => (line ? `> ${line}` : ">"))
+      .join("\n");
+  };
+  const quotedBody = bodyParts
+    .map((part) => quote(part))
+    .filter(Boolean)
+    .join(screeningBlock ? `\n\n${screeningBlock}\n\n` : "\n\n");
 
   return [
     `*${record.number} - ${record.name} - ✅${record.title}*`,
@@ -1361,7 +1680,17 @@ function formatSlackExpertHtml(record: SlackExpertRecord) {
 function formatSlackExpertHtmlForCombinedCopy(record: SlackExpertRecord) {
   const header = `<p><strong>${escapeHtml(`${record.number} - ${record.name} - ✅${record.title}`)}</strong></p>`;
   const body = formatSlackExpertBodyHtml(record);
-  return `<div>${header}${body ? `<blockquote>${body}</blockquote>` : ""}</div>`;
+  const screening = record.screeningText.trim();
+  const screeningBlock = screening
+    ? `<pre>${escapeHtml(`${record.screeningLabel}\n\n${screening}`)}</pre>`
+    : "";
+  const bodyParts = screeningBlock ? body.split(screeningBlock) : [body];
+  const formattedBody = bodyParts
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => `<blockquote>${part}</blockquote>`)
+    .join(screeningBlock);
+  return `<div>${header}${formattedBody}</div>`;
 }
 
 function formatSlackExpertForCanvas(record: SlackExpertRecord) {
@@ -1410,6 +1739,7 @@ function formatSlackExpertForCanvas(record: SlackExpertRecord) {
 
   return parts.join("\n\n");
 }
+
 function formatSlackExpertHtmlForCanvas(record: SlackExpertRecord) {
   const header = `<p><strong>${escapeHtml(`${record.number} - ${record.name} - ✅${record.title}`)}</strong></p>`;
   const body = formatSlackExpertBodyHtml(record, "canvas");
@@ -1436,6 +1766,7 @@ function formatSlackExpertListForCanvas(records: SlackExpertRecord[]) {
     ),
   ].join("\n");
 }
+
 function formatSlackExpertListHtml(records: SlackExpertRecord[]) {
   return `<div><p><strong>Expert List</strong></p><ul>${records
     .map(
@@ -1453,6 +1784,7 @@ function formatSlackCanvas(records: SlackExpertRecord[]) {
     .filter(Boolean)
     .join("\n\n");
 }
+
 function formatSlackCanvasHtml(records: SlackExpertRecord[]) {
   const expertDetails = records
     .map((record) => formatSlackExpertHtmlForCanvas(record))
@@ -1474,6 +1806,37 @@ async function writeSlackClipboard(plainText: string, html: string) {
   } catch {
     // Fall back to plain Slack markup when rich clipboard data is unavailable.
   }
+  await navigator.clipboard.writeText(plainText);
+}
+
+async function writeExcelClipboard(plainText: string, html: string) {
+  try {
+    if (navigator.clipboard.write && typeof ClipboardItem !== "undefined") {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/plain": new Blob([plainText], { type: "text/plain" }),
+          "text/html": new Blob([html], { type: "text/html" }),
+        }),
+      ]);
+      return;
+    }
+  } catch {
+    // Some browsers allow copying only through the active page selection.
+  }
+
+  let copiedRichData = false;
+  const handleCopy = (event: ClipboardEvent) => {
+    if (!event.clipboardData) return;
+    event.clipboardData.setData("text/plain", plainText);
+    event.clipboardData.setData("text/html", html);
+    event.preventDefault();
+    copiedRichData = true;
+  };
+  document.addEventListener("copy", handleCopy, { once: true });
+  const copied = document.execCommand("copy");
+  document.removeEventListener("copy", handleCopy);
+  if (copied && copiedRichData) return;
+
   await navigator.clipboard.writeText(plainText);
 }
 
@@ -1499,14 +1862,16 @@ const slackTranslations = {
     results: "2. Copy to Slack",
     resultsHelp: "Canvas copy puts only Screening Questions in a callout and highlights availability as code.",
     empty: "Your Slack-ready expert posts will appear here.",
-    copy: "Copy for Slack",
+    copy: "Copy Slack message",
     copied: "Copied",
-    copyAll: "Copy all experts",
-    copiedAll: "All experts copied",
+    copyAll: "Copy all Slack messages",
+    copiedAll: "All Slack messages copied",
     copyCanvas: "Copy for Canvas",
     copiedCanvas: "Canvas copied",
     copyExpertList: "Copy expert list",
     copiedExpertList: "Expert list copied",
+    copyAllCanvas: "Copy all for Canvas",
+    copyAllExpertList: "Copy all expert lists",
     found: "experts formatted",
     parseError: "No expert profile beginning with #ID - Name - … was found.",
     employment: "Employment History",
@@ -1546,14 +1911,16 @@ const slackTranslations = {
     results: "2. Slackへコピー",
     resultsHelp: "Canvas用コピーでは、Screening Questionsのみをcalloutにし、Availabilityをcode表示します。",
     empty: "整形したSlack投稿がここに表示されます。",
-    copy: "Slack用にコピー",
+    copy: "Slackメッセージをコピー",
     copied: "コピーしました",
-    copyAll: "全員をコピー",
-    copiedAll: "全員をコピーしました",
+    copyAll: "Slackメッセージを全員コピー",
+    copiedAll: "Slackメッセージを全員コピーしました",
     copyCanvas: "Canvas用にコピー",
     copiedCanvas: "Canvas用にコピーしました",
     copyExpertList: "Expert Listをコピー",
     copiedExpertList: "Expert Listをコピーしました",
+    copyAllCanvas: "Canvas用に全員コピー",
+    copyAllExpertList: "Expert Listを全員コピー",
     found: "名を整形",
     parseError: "#番号 - Name - … で始まるエキスパート情報が見つかりませんでした。",
     employment: "Employment History",
@@ -1593,14 +1960,16 @@ const slackTranslations = {
     results: "2. 复制到 Slack",
     resultsHelp: "Canvas 复制仅将 Screening Questions 放入 callout，并用 code 格式突出 Availability。",
     empty: "生成后的 Slack 内容会显示在这里。",
-    copy: "复制到 Slack",
+    copy: "复制 Slack 消息",
     copied: "已复制",
-    copyAll: "复制全部专家",
-    copiedAll: "已复制全部专家",
+    copyAll: "复制全部 Slack 消息",
+    copiedAll: "已复制全部 Slack 消息",
     copyCanvas: "复制 Canvas",
     copiedCanvas: "Canvas 内容已复制",
     copyExpertList: "复制专家名单",
     copiedExpertList: "专家名单已复制",
+    copyAllCanvas: "复制全部 Canvas 内容",
+    copyAllExpertList: "复制全部专家名单",
     found: "位专家已生成",
     parseError: "没有找到以 #编号 - Name - … 开头的专家信息。",
     employment: "Employment History",
@@ -2053,6 +2422,18 @@ function ToolSwitcher({
         </span>
       </button>
       <button
+        className={active === "jai" ? "is-active" : ""}
+        type="button"
+        title="Jai case"
+        onClick={() => onSelect("jai")}
+      >
+        <span className="tool-switcher-icon jai">JC</span>
+        <span>
+          <strong>Jai case</strong>
+          <small>Client Expert Tracker</small>
+        </span>
+      </button>
+      <button
         className={active === "navi" ? "is-active" : ""}
         type="button"
         title="LinkedIn Search"
@@ -2085,8 +2466,7 @@ type BreakGameKind =
   | "runner"
   | "snake"
   | "flappy"
-  | "stack"
-  | "2048";
+  | "marbles";
 
 type MemoryCard = {
   id: number;
@@ -3450,6 +3830,1315 @@ function Taya2048({ copy }: { copy: Game2048Copy }) {
   );
 }
 
+type GomokuStone = 0 | 1 | 2;
+type GomokuWinner = GomokuStone | 3;
+type GomokuRole = "host" | "guest";
+type GomokuConnectionStatus =
+  | "idle"
+  | "preparing"
+  | "waiting"
+  | "connecting"
+  | "connected"
+  | "error";
+
+type GomokuCopy = {
+  choose: string;
+  host: string;
+  hostHelp: string;
+  guest: string;
+  guestHelp: string;
+  sameWifi: string;
+  noServer: string;
+  createCode: string;
+  hostCode: string;
+  hostCodeHelp: string;
+  replyCode: string;
+  replyCodeHelp: string;
+  pasteHost: string;
+  makeReply: string;
+  pasteReply: string;
+  connect: string;
+  copy: string;
+  copied: string;
+  waiting: string;
+  connecting: string;
+  connected: string;
+  disconnected: string;
+  invalidCode: string;
+  black: string;
+  white: string;
+  yourStone: string;
+  yourTurn: string;
+  theirTurn: string;
+  blackWins: string;
+  whiteWins: string;
+  draw: string;
+  newRound: string;
+  leave: string;
+  back: string;
+};
+
+type GomokuWireMessage =
+  | { type: "move"; index: number }
+  | { type: "reset" };
+
+const GOMOKU_SIZE = 15;
+const GOMOKU_CELLS = GOMOKU_SIZE * GOMOKU_SIZE;
+
+function createGomokuRoomCode() {
+  const randomValue = new Uint32Array(1);
+  globalThis.crypto.getRandomValues(randomValue);
+  return String(100000 + (randomValue[0] % 900000));
+}
+
+function createGomokuBoard(): GomokuStone[] {
+  return Array.from({ length: GOMOKU_CELLS }, () => 0 as GomokuStone);
+}
+
+function findGomokuLine(board: GomokuStone[], index: number, stone: GomokuStone) {
+  if (!stone) return [] as number[];
+  const row = Math.floor(index / GOMOKU_SIZE);
+  const column = index % GOMOKU_SIZE;
+  const directions = [
+    [0, 1],
+    [1, 0],
+    [1, 1],
+    [1, -1],
+  ] as const;
+
+  for (const [rowStep, columnStep] of directions) {
+    const line = [index];
+    for (const sign of [-1, 1] as const) {
+      let nextRow = row + rowStep * sign;
+      let nextColumn = column + columnStep * sign;
+      while (
+        nextRow >= 0 &&
+        nextRow < GOMOKU_SIZE &&
+        nextColumn >= 0 &&
+        nextColumn < GOMOKU_SIZE
+      ) {
+        const nextIndex = nextRow * GOMOKU_SIZE + nextColumn;
+        if (board[nextIndex] !== stone) break;
+        if (sign < 0) line.unshift(nextIndex);
+        else line.push(nextIndex);
+        nextRow += rowStep * sign;
+        nextColumn += columnStep * sign;
+      }
+    }
+    if (line.length >= 5) return line;
+  }
+
+  return [] as number[];
+}
+
+function TayaGomoku({ copy }: { copy: GomokuCopy }) {
+  const [role, setRole] = useState<GomokuRole | null>(null);
+  const [status, setStatus] = useState<GomokuConnectionStatus>("idle");
+  const [roomCode, setRoomCode] = useState("");
+  const [joinCode, setJoinCode] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState("");
+  const [board, setBoard] = useState<GomokuStone[]>(() => createGomokuBoard());
+  const [turn, setTurn] = useState<1 | 2>(1);
+  const [winner, setWinner] = useState<GomokuWinner>(0);
+  const [winningLine, setWinningLine] = useState<number[]>([]);
+  const peerRef = useRef<PeerInstance | null>(null);
+  const connectionRef = useRef<DataConnection | null>(null);
+  const connectionTimerRef = useRef<number | null>(null);
+  const roleRef = useRef<GomokuRole | null>(null);
+  const boardRef = useRef<GomokuStone[]>(board);
+  const turnRef = useRef<1 | 2>(turn);
+  const winnerRef = useRef<GomokuWinner>(winner);
+
+  function updateRole(nextRole: GomokuRole | null) {
+    roleRef.current = nextRole;
+    setRole(nextRole);
+  }
+
+  function setBoardState(nextBoard: GomokuStone[]) {
+    boardRef.current = nextBoard;
+    setBoard(nextBoard);
+  }
+
+  function setTurnState(nextTurn: 1 | 2) {
+    turnRef.current = nextTurn;
+    setTurn(nextTurn);
+  }
+
+  function setWinnerState(nextWinner: GomokuWinner, line: number[] = []) {
+    winnerRef.current = nextWinner;
+    setWinner(nextWinner);
+    setWinningLine(line);
+  }
+
+  function closeGomokuPeer() {
+    if (connectionTimerRef.current) window.clearTimeout(connectionTimerRef.current);
+    connectionTimerRef.current = null;
+    connectionRef.current?.close();
+    peerRef.current?.destroy();
+    connectionRef.current = null;
+    peerRef.current = null;
+  }
+
+  function resetBoard(send = false) {
+    setBoardState(createGomokuBoard());
+    setTurnState(1);
+    setWinnerState(0);
+    if (send && connectionRef.current?.open) {
+      connectionRef.current.send({ type: "reset" } satisfies GomokuWireMessage);
+    }
+  }
+
+  function applyMove(index: number, stone: 1 | 2, send = false) {
+    if (
+      index < 0 ||
+      index >= GOMOKU_CELLS ||
+      winnerRef.current ||
+      turnRef.current !== stone ||
+      boardRef.current[index]
+    ) return;
+
+    const nextBoard = [...boardRef.current];
+    nextBoard[index] = stone;
+    setBoardState(nextBoard);
+    const line = findGomokuLine(nextBoard, index, stone);
+    if (line.length >= 5) {
+      setWinnerState(stone, line);
+    } else if (nextBoard.every(Boolean)) {
+      setWinnerState(3);
+    } else {
+      setTurnState(stone === 1 ? 2 : 1);
+    }
+
+    if (send && connectionRef.current?.open) {
+      connectionRef.current.send({ type: "move", index } satisfies GomokuWireMessage);
+    }
+  }
+
+  function handleGomokuMessage(payload: unknown) {
+    try {
+      const message = (typeof payload === "string" ? JSON.parse(payload) : payload) as GomokuWireMessage;
+      if (message.type === "reset") {
+        resetBoard(false);
+        return;
+      }
+      if (message.type === "move") {
+        const remoteStone: 1 | 2 = roleRef.current === "host" ? 2 : 1;
+        applyMove(message.index, remoteStone, false);
+      }
+    } catch {
+      setError(copy.invalidCode);
+    }
+  }
+
+  function installGomokuConnection(connection: DataConnection) {
+    if (connectionRef.current?.open) {
+      connection.close();
+      return;
+    }
+    connectionRef.current = connection;
+    connection.on("open", () => {
+      if (connectionTimerRef.current) window.clearTimeout(connectionTimerRef.current);
+      connectionTimerRef.current = null;
+      setStatus("connected");
+      setError("");
+      resetBoard(false);
+    });
+    connection.on("close", () => {
+      if (roleRef.current) {
+        setStatus("error");
+        setError(copy.disconnected);
+      }
+    });
+    connection.on("error", () => {
+      setStatus("error");
+      setError(copy.disconnected);
+    });
+    connection.on("data", (data) => handleGomokuMessage(data));
+  }
+
+  function beginConnectionTimeout() {
+    if (connectionTimerRef.current) window.clearTimeout(connectionTimerRef.current);
+    connectionTimerRef.current = window.setTimeout(() => {
+      if (!connectionRef.current?.open) {
+        setStatus("error");
+        setError(copy.disconnected);
+      }
+    }, 15000);
+  }
+
+  async function createHostRoom(attempt = 0) {
+    if (attempt > 3) {
+      setStatus("error");
+      setError(copy.invalidCode);
+      return;
+    }
+    closeGomokuPeer();
+    setStatus("preparing");
+    setError("");
+    setRoomCode("");
+
+    try {
+      const { Peer } = await import("peerjs");
+      const nextCode = createGomokuRoomCode();
+      const peer = new Peer(`taya-gomoku-${nextCode}`, { debug: 1 });
+      peerRef.current = peer;
+      peer.on("open", () => {
+        setRoomCode(nextCode);
+        setStatus("waiting");
+      });
+      peer.on("connection", (connection) => installGomokuConnection(connection));
+      peer.on("error", (issue) => {
+        if (issue.type === "unavailable-id") {
+          void createHostRoom(attempt + 1);
+          return;
+        }
+        setStatus("error");
+        setError(issue.type === "network" ? copy.disconnected : copy.invalidCode);
+      });
+    } catch {
+      setStatus("error");
+      setError(copy.disconnected);
+    }
+  }
+
+  async function joinHostRoom() {
+    const normalizedCode = joinCode.replace(/\D/g, "").slice(0, 6);
+    if (normalizedCode.length !== 6) {
+      setStatus("error");
+      setError(copy.invalidCode);
+      return;
+    }
+
+    closeGomokuPeer();
+    setStatus("connecting");
+    setError("");
+
+    try {
+      const { Peer } = await import("peerjs");
+      const peer = new Peer({ debug: 1 });
+      peerRef.current = peer;
+      peer.on("open", () => {
+        const connection = peer.connect(`taya-gomoku-${normalizedCode}`, {
+          serialization: "json",
+          reliable: true,
+        });
+        installGomokuConnection(connection);
+        beginConnectionTimeout();
+      });
+      peer.on("error", (issue) => {
+        setStatus("error");
+        setError(issue.type === "peer-unavailable" ? copy.invalidCode : copy.disconnected);
+      });
+    } catch {
+      setStatus("error");
+      setError(copy.disconnected);
+    }
+  }
+
+  async function copyRoomCode() {
+    try {
+      await navigator.clipboard.writeText(roomCode);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setError(copy.invalidCode);
+    }
+  }
+
+  function chooseRole(nextRole: GomokuRole) {
+    closeGomokuPeer();
+    updateRole(nextRole);
+    setStatus("idle");
+    setRoomCode("");
+    setJoinCode("");
+    setCopied(false);
+    setError("");
+    resetBoard(false);
+  }
+
+  function leaveGomoku() {
+    closeGomokuPeer();
+    updateRole(null);
+    setStatus("idle");
+    setRoomCode("");
+    setJoinCode("");
+    setCopied(false);
+    setError("");
+    resetBoard(false);
+  }
+
+  useEffect(() => () => {
+    if (connectionTimerRef.current) window.clearTimeout(connectionTimerRef.current);
+    connectionRef.current?.close();
+    peerRef.current?.destroy();
+  }, []);
+
+  const localStone: 1 | 2 = role === "host" ? 1 : 2;
+  const canPlay = status === "connected" && !winner && turn === localStone;
+  const resultText = winner === 1
+    ? copy.blackWins
+    : winner === 2
+      ? copy.whiteWins
+      : winner === 3
+        ? copy.draw
+        : canPlay
+          ? copy.yourTurn
+          : copy.theirTurn;
+
+  if (status === "connected" && role) {
+    return (
+      <div className="taya-gomoku-shell is-playing">
+        <div className="taya-gomoku-status">
+          <span className="taya-gomoku-live"><i />{copy.connected}</span>
+          <strong>{resultText}</strong>
+          <span>{copy.yourStone}: <b className={`stone-label is-${localStone === 1 ? "black" : "white"}`}>{localStone === 1 ? copy.black : copy.white}</b></span>
+        </div>
+        <div
+          className={`taya-gomoku-grid ${canPlay ? "is-my-turn" : ""}`}
+          role="grid"
+          aria-label="LAN Gomoku 15 by 15"
+        >
+          {board.map((stone, index) => (
+            <button
+              key={index}
+              className={`${stone ? `has-stone stone-${stone}` : ""} ${winningLine.includes(index) ? "is-winning" : ""}`}
+              type="button"
+              role="gridcell"
+              aria-label={`${Math.floor(index / GOMOKU_SIZE) + 1}, ${index % GOMOKU_SIZE + 1}`}
+              disabled={!canPlay || Boolean(stone)}
+              onClick={() => applyMove(index, localStone, true)}
+            >
+              {stone > 0 && <span aria-hidden="true" />}
+            </button>
+          ))}
+        </div>
+        <div className="taya-gomoku-actions">
+          <button type="button" onClick={() => resetBoard(true)}>{copy.newRound}</button>
+          <button className="is-quiet" type="button" onClick={leaveGomoku}>{copy.leave}</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="taya-gomoku-shell">
+      <div className="taya-gomoku-badge"><span>LAN DIRECT</span><b>{copy.noServer}</b></div>
+
+      {!role ? (
+        <div className="taya-gomoku-role-view">
+          <div>
+            <small>{copy.sameWifi}</small>
+            <h3>{copy.choose}</h3>
+          </div>
+          <div className="taya-gomoku-role-grid">
+            <button className="is-host" type="button" onClick={() => chooseRole("host")}>
+              <span className="role-stone is-black" />
+              <strong>{copy.host}</strong>
+              <small>{copy.hostHelp}</small>
+            </button>
+            <button className="is-guest" type="button" onClick={() => chooseRole("guest")}>
+              <span className="role-stone is-white" />
+              <strong>{copy.guest}</strong>
+              <small>{copy.guestHelp}</small>
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="taya-gomoku-connect-view">
+          <div className="taya-gomoku-connect-head">
+            <button type="button" onClick={leaveGomoku}>← {copy.back}</button>
+            <strong>{role === "host" ? copy.host : copy.guest}</strong>
+            <span className={`connection-state is-${status}`}>
+              {status === "preparing"
+                ? "…"
+                : status === "waiting"
+                  ? copy.waiting
+                  : status === "connecting"
+                    ? copy.connecting
+                    : copy.sameWifi}
+            </span>
+          </div>
+
+          {role === "host" ? (
+            <div className="taya-gomoku-steps">
+              <section>
+                <span className="step-number">1</span>
+                <div>
+                  <strong>{copy.createCode}</strong>
+                  <small>{copy.hostCodeHelp}</small>
+                </div>
+                {!roomCode && (
+                  <button className="step-action" type="button" onClick={() => createHostRoom()} disabled={status === "preparing"}>
+                    {copy.createCode}
+                  </button>
+                )}
+                {roomCode && (
+                  <div className="taya-gomoku-room-code">
+                    <strong aria-label={copy.hostCode}>{roomCode}</strong>
+                    <button type="button" onClick={copyRoomCode}>
+                      {copied ? copy.copied : copy.copy}
+                    </button>
+                  </div>
+                )}
+              </section>
+              {roomCode && <p className="taya-gomoku-waiting"><i />{copy.waiting}</p>}
+            </div>
+          ) : (
+            <div className="taya-gomoku-steps">
+              <section>
+                <span className="step-number">1</span>
+                <div>
+                  <strong>{copy.pasteHost}</strong>
+                  <small>{copy.hostCodeHelp}</small>
+                </div>
+                <input
+                  className="taya-gomoku-room-input"
+                  value={joinCode}
+                  aria-label={copy.hostCode}
+                  placeholder={copy.pasteHost}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  onChange={(event) => setJoinCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                />
+                <button className="step-action" type="button" onClick={joinHostRoom} disabled={joinCode.length !== 6 || status === "connecting"}>
+                  {copy.connect}
+                </button>
+              </section>
+            </div>
+          )}
+          {error && <p className="taya-gomoku-error" role="alert">{error}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+type MarbleTone = 0 | 1 | 2 | 3 | 4;
+
+type MarbleShot = {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  tone: MarbleTone;
+};
+
+type MarbleParticle = {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  maxLife: number;
+  delay: number;
+  tone: MarbleTone;
+};
+
+type MarbleBurst = {
+  x: number;
+  y: number;
+  age: number;
+  delay: number;
+  duration: number;
+  tone: MarbleTone;
+};
+
+type MarbleFloatLabel = {
+  x: number;
+  y: number;
+  life: number;
+  maxLife: number;
+  text: string;
+  tone: MarbleTone;
+};
+
+type MarblePathPoint = {
+  x: number;
+  y: number;
+  distance: number;
+};
+
+type MarbleEngine = {
+  status: "ready" | "running" | "over";
+  score: number;
+  best: number;
+  combo: number;
+  level: ArcadeLevel;
+  leadDistance: number;
+  tones: MarbleTone[];
+  nextTone: MarbleTone;
+  shot: MarbleShot | null;
+  particles: MarbleParticle[];
+  bursts: MarbleBurst[];
+  labels: MarbleFloatLabel[];
+  pulse: number;
+  hitStop: number;
+  retreatRemaining: number;
+  aimAngle: number;
+  lastTime: number;
+};
+
+type MarbleGameCopy = {
+  start: string;
+  restart: string;
+  gameOver: string;
+  score: string;
+  best: string;
+  level: string;
+  combo: string;
+  next: string;
+  aim: string;
+};
+
+const MARBLE_BEST_KEY = "tayaMarblesBestV1";
+const MARBLE_PALETTE = ["#55e2bd", "#5c8dff", "#a976ff", "#ff6f91", "#ffc65b"] as const;
+
+function randomMarbleTone(colorCount: number): MarbleTone {
+  return Math.floor(Math.random() * colorCount) as MarbleTone;
+}
+
+function createMarbleChain(colorCount = 3, length = 30): MarbleTone[] {
+  const tones: MarbleTone[] = [];
+  for (let index = 0; index < length; index += 1) {
+    let tone = randomMarbleTone(colorCount);
+    while (
+      tones.length >= 2 &&
+      tones[tones.length - 1] === tone &&
+      tones[tones.length - 2] === tone
+    ) {
+      tone = randomMarbleTone(colorCount);
+    }
+    tones.push(tone);
+  }
+  return tones;
+}
+
+function replenishMarbleChain(
+  tones: MarbleTone[],
+  colorCount: number,
+  targetLength: number,
+) {
+  const next = [...tones];
+  while (next.length < targetLength) {
+    let tone = randomMarbleTone(colorCount);
+    while (
+      next.length >= 2 &&
+      next[next.length - 1] === tone &&
+      next[next.length - 2] === tone
+    ) {
+      tone = randomMarbleTone(colorCount);
+    }
+    next.push(tone);
+  }
+  return next;
+}
+
+function createMarblePath(width: number, height: number): MarblePathPoint[] {
+  const points: MarblePathPoint[] = [];
+  const centerX = width * 0.5;
+  const centerY = height * 0.52;
+  let distance = 0;
+
+  for (let index = 0; index <= 720; index += 1) {
+    const progress = index / 720;
+    const angle = Math.PI * (0.98 + progress * 3.55);
+    const radiusX = width * (0.55 - progress * 0.39);
+    const radiusY = height * (0.43 - progress * 0.3);
+    const x = centerX + Math.cos(angle) * radiusX;
+    const y = centerY + Math.sin(angle) * radiusY;
+    const previous = points[points.length - 1];
+    if (previous) distance += Math.hypot(x - previous.x, y - previous.y);
+    points.push({ x, y, distance });
+  }
+
+  return points;
+}
+
+function pointOnMarblePath(path: MarblePathPoint[], distance: number): MarblePathPoint {
+  const safeDistance = Math.max(0, Math.min(path[path.length - 1].distance, distance));
+  let low = 0;
+  let high = path.length - 1;
+
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (path[middle].distance < safeDistance) low = middle + 1;
+    else high = middle;
+  }
+
+  const next = path[low];
+  const previous = path[Math.max(0, low - 1)];
+  const segment = Math.max(0.001, next.distance - previous.distance);
+  const ratio = (safeDistance - previous.distance) / segment;
+  return {
+    x: previous.x + (next.x - previous.x) * ratio,
+    y: previous.y + (next.y - previous.y) * ratio,
+    distance: safeDistance,
+  };
+}
+
+function marbleLevelForScore(score: number): ArcadeLevel {
+  return getArcadeLevel(score, 260, 680);
+}
+
+function marbleColorCount(level: ArcadeLevel) {
+  return level === 1 ? 3 : level === 2 ? 4 : 5;
+}
+
+function marbleSpeed(level: ArcadeLevel) {
+  return level === 1 ? 22 : level === 2 ? 34 : 50;
+}
+
+function marbleChainTarget(level: ArcadeLevel) {
+  return level === 1 ? 30 : level === 2 ? 36 : 43;
+}
+
+function marbleRetreatDistance(level: ArcadeLevel, removed: number, chains: number) {
+  const perMarble = level === 1 ? 7.2 : level === 2 ? 5.7 : 4.4;
+  const chainBonus = level === 1 ? 12 : level === 2 ? 10 : 8;
+  return removed * perMarble + Math.max(0, chains - 1) * chainBonus;
+}
+
+function drawMarbleBall(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  radius: number,
+  tone: MarbleTone,
+  alpha = 1,
+) {
+  const color = MARBLE_PALETTE[tone];
+  const gradient = context.createRadialGradient(
+    x - radius * 0.38,
+    y - radius * 0.42,
+    radius * 0.1,
+    x,
+    y,
+    radius,
+  );
+  gradient.addColorStop(0, "#ffffff");
+  gradient.addColorStop(0.16, color);
+  gradient.addColorStop(1, "#142338");
+
+  context.save();
+  context.globalAlpha = alpha;
+  context.shadowColor = color;
+  context.shadowBlur = radius * 0.85;
+  context.beginPath();
+  context.arc(x, y, radius, 0, Math.PI * 2);
+  context.fillStyle = gradient;
+  context.fill();
+  context.shadowBlur = 0;
+  context.lineWidth = Math.max(1, radius * 0.09);
+  context.strokeStyle = "rgba(255, 255, 255, 0.54)";
+  context.stroke();
+  context.beginPath();
+  context.arc(x - radius * 0.32, y - radius * 0.34, radius * 0.19, 0, Math.PI * 2);
+  context.fillStyle = "rgba(255, 255, 255, 0.72)";
+  context.fill();
+  context.restore();
+}
+
+function findMarbleMatch(tones: MarbleTone[], pivot: number) {
+  if (pivot < 0 || pivot >= tones.length) return null;
+  let start = pivot;
+  let end = pivot;
+  while (start > 0 && tones[start - 1] === tones[pivot]) start -= 1;
+  while (end < tones.length - 1 && tones[end + 1] === tones[pivot]) end += 1;
+  return end - start + 1 >= 3 ? { start, count: end - start + 1 } : null;
+}
+
+function resolveMarbleMatches(tones: MarbleTone[], insertedAt: number) {
+  const next = [...tones];
+  let pivot = insertedAt;
+  let removed = 0;
+  let chains = 0;
+  const groups: Array<{ start: number; count: number; tone: MarbleTone; chain: number }> = [];
+
+  while (next.length) {
+    const match = findMarbleMatch(next, Math.max(0, Math.min(next.length - 1, pivot)));
+    if (!match) break;
+    const tone = next[match.start];
+    groups.push({ ...match, tone, chain: chains + 1 });
+    next.splice(match.start, match.count);
+    removed += match.count;
+    chains += 1;
+    pivot = Math.max(0, match.start - 1);
+  }
+
+  return { tones: next, removed, chains, groups };
+}
+
+function TayaMarbles({ copy }: { copy: MarbleGameCopy }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const engineRef = useRef<MarbleEngine>({
+    status: "ready",
+    score: 0,
+    best: 0,
+    combo: 0,
+    level: 1,
+    leadDistance: 270,
+    tones: createMarbleChain(),
+    nextTone: randomMarbleTone(3),
+    shot: null,
+    particles: [],
+    bursts: [],
+    labels: [],
+    pulse: 0,
+    hitStop: 0,
+    retreatRemaining: 0,
+    aimAngle: -Math.PI / 2,
+    lastTime: 0,
+  });
+  const pathRef = useRef<MarblePathPoint[]>([]);
+  const [view, setView] = useState({
+    status: "ready" as MarbleEngine["status"],
+    score: 0,
+    best: 0,
+    combo: 0,
+    level: 1 as ArcadeLevel,
+    nextTone: 0 as MarbleTone,
+  });
+
+  function syncMarbleView() {
+    const engine = engineRef.current;
+    setView({
+      status: engine.status,
+      score: engine.score,
+      best: engine.best,
+      combo: engine.combo,
+      level: engine.level,
+      nextTone: engine.nextTone,
+    });
+  }
+
+  function startMarbles() {
+    const savedBest = Number(window.localStorage.getItem(MARBLE_BEST_KEY) || 0);
+    engineRef.current = {
+      status: "running",
+      score: 0,
+      best: Number.isFinite(savedBest) ? savedBest : 0,
+      combo: 0,
+      level: 1,
+      leadDistance: 270,
+      tones: createMarbleChain(3),
+      nextTone: randomMarbleTone(3),
+      shot: null,
+      particles: [],
+      bursts: [],
+      labels: [],
+      pulse: 0,
+      hitStop: 0,
+      retreatRemaining: 0,
+      aimAngle: -Math.PI / 2,
+      lastTime: performance.now(),
+    };
+    syncMarbleView();
+    canvasRef.current?.focus();
+  }
+
+  function fireMarble() {
+    const canvas = canvasRef.current;
+    const engine = engineRef.current;
+    if (!canvas || engine.status !== "running" || engine.shot) return;
+    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
+    const centerX = width * 0.5;
+    const centerY = height * 0.52;
+    const shotSpeed = engine.level === 1 ? 430 : engine.level === 2 ? 480 : 535;
+    engine.shot = {
+      x: centerX + Math.cos(engine.aimAngle) * 30,
+      y: centerY + Math.sin(engine.aimAngle) * 30,
+      vx: Math.cos(engine.aimAngle) * shotSpeed,
+      vy: Math.sin(engine.aimAngle) * shotSpeed,
+      tone: engine.nextTone,
+    };
+    engine.nextTone = randomMarbleTone(marbleColorCount(engine.level));
+    syncMarbleView();
+  }
+
+  function aimMarbleAt(clientX: number, clientY: number) {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const bounds = canvas.getBoundingClientRect();
+    const x = clientX - bounds.left;
+    const y = clientY - bounds.top;
+    engineRef.current.aimAngle = Math.atan2(
+      y - canvas.clientHeight * 0.52,
+      x - canvas.clientWidth * 0.5,
+    );
+  }
+
+  useEffect(() => {
+    const savedBest = Number(window.localStorage.getItem(MARBLE_BEST_KEY) || 0);
+    if (Number.isFinite(savedBest)) {
+      engineRef.current.best = savedBest;
+      const timer = window.setTimeout(() => syncMarbleView(), 0);
+      return () => window.clearTimeout(timer);
+    }
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    let frame = 0;
+
+    function render(time: number) {
+      const width = Math.max(1, canvas.clientWidth);
+      const height = Math.max(1, canvas.clientHeight);
+      const pixelRatio = Math.min(2, window.devicePixelRatio || 1);
+      if (canvas.width !== Math.round(width * pixelRatio) || canvas.height !== Math.round(height * pixelRatio)) {
+        canvas.width = Math.round(width * pixelRatio);
+        canvas.height = Math.round(height * pixelRatio);
+        pathRef.current = createMarblePath(width, height);
+      }
+
+      const path = pathRef.current.length ? pathRef.current : createMarblePath(width, height);
+      pathRef.current = path;
+      const engine = engineRef.current;
+      const elapsed = engine.lastTime ? Math.min(0.034, (time - engine.lastTime) / 1000) : 0;
+      engine.lastTime = time;
+      const ballRadius = Math.max(10.5, Math.min(14, width / 42));
+      const spacing = ballRadius * 1.92;
+      const pathLength = path[path.length - 1].distance;
+
+      if (engine.status === "running") {
+        if (engine.hitStop > 0) {
+          engine.hitStop = Math.max(0, engine.hitStop - elapsed);
+        } else if (engine.retreatRemaining > 0) {
+          const retreatStep = Math.min(
+            engine.retreatRemaining,
+            (125 + engine.level * 22) * elapsed,
+          );
+          engine.leadDistance = Math.max(95, engine.leadDistance - retreatStep);
+          engine.retreatRemaining -= retreatStep;
+        } else {
+          engine.leadDistance += marbleSpeed(engine.level) * elapsed;
+        }
+        engine.pulse = Math.max(0, engine.pulse - elapsed * 2.8);
+
+        if (engine.leadDistance >= pathLength - ballRadius) {
+          engine.status = "over";
+          engine.shot = null;
+          syncMarbleView();
+        }
+
+        if (engine.shot) {
+          engine.shot.x += engine.shot.vx * elapsed;
+          engine.shot.y += engine.shot.vy * elapsed;
+          let collisionIndex = -1;
+          let collisionX = 0;
+          let collisionY = 0;
+
+          for (let index = 0; index < engine.tones.length; index += 1) {
+            const marbleDistance = engine.leadDistance - index * spacing;
+            if (marbleDistance < 0 || marbleDistance > pathLength) continue;
+            const point = pointOnMarblePath(path, marbleDistance);
+            if (Math.hypot(engine.shot.x - point.x, engine.shot.y - point.y) <= ballRadius * 1.72) {
+              collisionIndex = index;
+              collisionX = point.x;
+              collisionY = point.y;
+              break;
+            }
+          }
+
+          if (collisionIndex >= 0) {
+            const hitDistance = engine.leadDistance - collisionIndex * spacing;
+            const before = pointOnMarblePath(path, hitDistance + 3);
+            const after = pointOnMarblePath(path, hitDistance - 3);
+            const alongTrack =
+              (engine.shot.x - collisionX) * (before.x - after.x) +
+              (engine.shot.y - collisionY) * (before.y - after.y);
+            const insertedAt = Math.max(
+              0,
+              Math.min(engine.tones.length, collisionIndex + (alongTrack < 0 ? 1 : 0)),
+            );
+            const insertedTone = engine.shot.tone;
+            const inserted = [...engine.tones];
+            inserted.splice(insertedAt, 0, insertedTone);
+            const resolved = resolveMarbleMatches(inserted, insertedAt);
+            engine.tones = resolved.tones;
+            engine.shot = null;
+
+            if (resolved.removed > 0) {
+              engine.combo = Math.max(1, engine.combo + resolved.chains);
+              const scoreGain = resolved.removed * 35 + (engine.combo - 1) * 45;
+              engine.score += scoreGain;
+              engine.retreatRemaining += marbleRetreatDistance(
+                engine.level,
+                resolved.removed,
+                resolved.chains,
+              );
+              engine.pulse = Math.min(1, 0.52 + resolved.chains * 0.2);
+              engine.hitStop = Math.min(0.15, 0.065 + resolved.chains * 0.025);
+
+              resolved.groups.forEach((group, groupIndex) => {
+                const groupDelay = groupIndex * 0.14;
+                const groupCenterIndex = group.start + (group.count - 1) / 2;
+                const centerDistance = engine.leadDistance - groupCenterIndex * spacing;
+                const centerPoint = pointOnMarblePath(path, centerDistance);
+
+                for (let offset = 0; offset < group.count; offset += 1) {
+                  const marbleDistance = engine.leadDistance - (group.start + offset) * spacing;
+                  if (marbleDistance < 0 || marbleDistance > pathLength) continue;
+                  const point = pointOnMarblePath(path, marbleDistance);
+                  const burstDelay = groupDelay + offset * 0.028;
+                  engine.bursts.push({
+                    x: point.x,
+                    y: point.y,
+                    age: 0,
+                    delay: burstDelay,
+                    duration: 0.72,
+                    tone: group.tone,
+                  });
+                  engine.particles.push(
+                    ...Array.from({ length: 5 }, (_, particleIndex) => {
+                      const angle = (particleIndex / 5) * Math.PI * 2 + Math.random() * 0.55;
+                      const speed = 70 + Math.random() * 130;
+                      const maxLife = 0.58 + Math.random() * 0.38;
+                      return {
+                        x: point.x,
+                        y: point.y,
+                        vx: Math.cos(angle) * speed,
+                        vy: Math.sin(angle) * speed,
+                        life: maxLife,
+                        maxLife,
+                        delay: burstDelay + 0.11,
+                        tone: group.tone,
+                      };
+                    }),
+                  );
+                }
+
+                engine.labels.push({
+                  x: centerPoint.x,
+                  y: centerPoint.y - ballRadius * 1.2,
+                  life: 1.05,
+                  maxLife: 1.05,
+                  text: groupIndex === 0
+                    ? `+${scoreGain}`
+                    : `CHAIN ×${groupIndex + 1}`,
+                  tone: group.tone,
+                });
+              });
+
+              const previousLevel = engine.level;
+              engine.level = marbleLevelForScore(engine.score);
+              engine.tones = replenishMarbleChain(
+                engine.tones,
+                marbleColorCount(engine.level),
+                marbleChainTarget(engine.level),
+              );
+              if (engine.level !== previousLevel) {
+                engine.retreatRemaining = Math.max(0, engine.retreatRemaining - 8);
+                engine.pulse = 1;
+              }
+            } else {
+              engine.combo = 0;
+            }
+
+            if (engine.score > engine.best) {
+              engine.best = engine.score;
+              window.localStorage.setItem(MARBLE_BEST_KEY, String(engine.best));
+            }
+            syncMarbleView();
+          } else if (
+            engine.shot.x < -40 ||
+            engine.shot.x > width + 40 ||
+            engine.shot.y < -40 ||
+            engine.shot.y > height + 40
+          ) {
+            engine.shot = null;
+          }
+        }
+
+        engine.particles = engine.particles
+          .map((particle) => ({
+            ...particle,
+            ...(particle.delay > 0
+              ? { delay: particle.delay - elapsed }
+              : {
+                  x: particle.x + particle.vx * elapsed,
+                  y: particle.y + particle.vy * elapsed,
+                  vx: particle.vx * 0.955,
+                  vy: particle.vy * 0.955 + 38 * elapsed,
+                  life: particle.life - elapsed,
+                }),
+          }))
+          .filter((particle) => particle.life > 0);
+        engine.bursts = engine.bursts
+          .map((burst) => ({ ...burst, age: burst.age + elapsed }))
+          .filter((burst) => burst.age < burst.delay + burst.duration);
+        engine.labels = engine.labels
+          .map((label) => ({ ...label, life: label.life - elapsed }))
+          .filter((label) => label.life > 0);
+      }
+
+      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      context.clearRect(0, 0, width, height);
+
+      const background = context.createRadialGradient(
+        width * 0.5,
+        height * 0.5,
+        10,
+        width * 0.5,
+        height * 0.5,
+        width * 0.62,
+      );
+      background.addColorStop(0, "rgba(31, 48, 75, 0.16)");
+      background.addColorStop(1, "rgba(3, 9, 20, 0.08)");
+      context.fillStyle = background;
+      context.fillRect(0, 0, width, height);
+
+      context.save();
+      context.beginPath();
+      path.forEach((point, index) => {
+        if (index === 0) context.moveTo(point.x, point.y);
+        else context.lineTo(point.x, point.y);
+      });
+      context.lineCap = "round";
+      context.lineJoin = "round";
+      context.shadowColor = "rgba(70, 225, 201, 0.38)";
+      context.shadowBlur = 22 + engine.pulse * 26;
+      context.strokeStyle = "rgba(4, 12, 24, 0.94)";
+      context.lineWidth = ballRadius * 2.48;
+      context.stroke();
+      context.shadowBlur = 0;
+      context.strokeStyle = "rgba(124, 173, 198, 0.2)";
+      context.lineWidth = ballRadius * 2.08;
+      context.stroke();
+      context.setLineDash([2, 8]);
+      context.strokeStyle = "rgba(180, 243, 230, 0.28)";
+      context.lineWidth = 1.4;
+      context.stroke();
+      context.restore();
+
+      const goal = path[path.length - 1];
+      const goalPulse = 1 + Math.sin(time / 320) * 0.08;
+      const goalGradient = context.createRadialGradient(
+        goal.x,
+        goal.y,
+        2,
+        goal.x,
+        goal.y,
+        ballRadius * 2.15,
+      );
+      goalGradient.addColorStop(0, "rgba(255, 207, 100, 0.98)");
+      goalGradient.addColorStop(0.25, "rgba(151, 104, 255, 0.72)");
+      goalGradient.addColorStop(1, "rgba(7, 14, 27, 0)");
+      context.beginPath();
+      context.arc(goal.x, goal.y, ballRadius * 2.15 * goalPulse, 0, Math.PI * 2);
+      context.fillStyle = goalGradient;
+      context.fill();
+
+      for (let index = engine.tones.length - 1; index >= 0; index -= 1) {
+        const marbleDistance = engine.leadDistance - index * spacing;
+        if (marbleDistance < 0 || marbleDistance > pathLength) continue;
+        const point = pointOnMarblePath(path, marbleDistance);
+        drawMarbleBall(context, point.x, point.y, ballRadius, engine.tones[index]);
+      }
+
+      engine.bursts.forEach((burst) => {
+        if (burst.age < burst.delay) return;
+        const progress = Math.min(1, (burst.age - burst.delay) / burst.duration);
+        const scale = progress < 0.22
+          ? 1 + (progress / 0.22) * 0.42
+          : 1.42 * Math.max(0.04, 1 - (progress - 0.22) / 0.78);
+        const alpha = Math.max(0, 1 - progress);
+        const ringRadius = ballRadius * (1.15 + progress * 2.15);
+
+        drawMarbleBall(
+          context,
+          burst.x,
+          burst.y,
+          ballRadius * scale,
+          burst.tone,
+          alpha,
+        );
+
+        context.save();
+        context.globalAlpha = alpha * 0.82;
+        context.strokeStyle = progress < 0.28 ? "#ffffff" : MARBLE_PALETTE[burst.tone];
+        context.shadowColor = MARBLE_PALETTE[burst.tone];
+        context.shadowBlur = 14 + progress * 16;
+        context.lineWidth = Math.max(1, 2.2 * (1 - progress));
+        context.beginPath();
+        context.arc(burst.x, burst.y, ringRadius, 0, Math.PI * 2);
+        context.stroke();
+        context.restore();
+      });
+
+      const centerX = width * 0.5;
+      const centerY = height * 0.52;
+      context.save();
+      context.translate(centerX, centerY);
+      context.rotate(engine.aimAngle);
+      context.shadowColor = "rgba(88, 231, 201, 0.54)";
+      context.shadowBlur = 18;
+      const barrel = context.createLinearGradient(6, 0, 38, 0);
+      barrel.addColorStop(0, "#2b3b56");
+      barrel.addColorStop(0.55, "#d9c386");
+      barrel.addColorStop(1, "#87f0d1");
+      context.fillStyle = barrel;
+      context.beginPath();
+      context.roundRect(5, -6, 35, 12, 6);
+      context.fill();
+      context.restore();
+
+      context.save();
+      context.shadowColor = "rgba(109, 234, 205, 0.5)";
+      context.shadowBlur = 22;
+      context.beginPath();
+      context.arc(centerX, centerY, ballRadius * 1.72, 0, Math.PI * 2);
+      context.fillStyle = "rgba(7, 16, 31, 0.96)";
+      context.fill();
+      context.lineWidth = 2;
+      context.strokeStyle = "rgba(210, 194, 133, 0.8)";
+      context.stroke();
+      context.restore();
+      drawMarbleBall(context, centerX, centerY, ballRadius * 0.88, engine.nextTone);
+
+      if (engine.shot) {
+        drawMarbleBall(context, engine.shot.x, engine.shot.y, ballRadius * 0.88, engine.shot.tone);
+      }
+
+      engine.particles.forEach((particle) => {
+        if (particle.delay > 0) return;
+        context.save();
+        const particleProgress = particle.life / particle.maxLife;
+        context.globalAlpha = Math.min(1, particleProgress * 1.4);
+        context.fillStyle = MARBLE_PALETTE[particle.tone];
+        context.shadowColor = MARBLE_PALETTE[particle.tone];
+        context.shadowBlur = 10;
+        context.beginPath();
+        context.arc(
+          particle.x,
+          particle.y,
+          1.5 + particleProgress * 2.6,
+          0,
+          Math.PI * 2,
+        );
+        context.fill();
+        context.restore();
+      });
+
+      engine.labels.forEach((label) => {
+        const progress = 1 - label.life / label.maxLife;
+        const y = label.y - progress * 42;
+        context.save();
+        context.globalAlpha = Math.min(1, label.life * 2.4);
+        context.translate(label.x, y);
+        context.scale(1 + Math.sin(Math.min(1, progress * 2.2) * Math.PI) * 0.16, 1);
+        context.font = "900 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+        context.textAlign = "center";
+        context.textBaseline = "middle";
+        context.lineWidth = 4;
+        context.strokeStyle = "rgba(3, 10, 21, 0.88)";
+        context.strokeText(label.text, 0, 0);
+        context.fillStyle = MARBLE_PALETTE[label.tone];
+        context.shadowColor = MARBLE_PALETTE[label.tone];
+        context.shadowBlur = 12;
+        context.fillText(label.text, 0, 0);
+        context.restore();
+      });
+
+      if (engine.pulse > 0) {
+        const pulseAnchor = engine.bursts.find((burst) => burst.age >= burst.delay) ?? engine.labels[0];
+        const pulseX = pulseAnchor?.x ?? width * 0.5;
+        const pulseY = pulseAnchor?.y ?? height * 0.5;
+        context.save();
+        const flash = context.createRadialGradient(
+          pulseX,
+          pulseY,
+          0,
+          pulseX,
+          pulseY,
+          width * 0.52,
+        );
+        flash.addColorStop(0, `rgba(115, 244, 211, ${engine.pulse * 0.12})`);
+        flash.addColorStop(1, "rgba(115, 244, 211, 0)");
+        context.fillStyle = flash;
+        context.fillRect(0, 0, width, height);
+        context.restore();
+      }
+
+      frame = window.requestAnimationFrame(render);
+    }
+
+    frame = window.requestAnimationFrame(render);
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  useEffect(() => {
+    function handleMarbleKeys(event: KeyboardEvent) {
+      const engine = engineRef.current;
+      if (view.status === "ready" || view.status === "over") {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          startMarbles();
+        }
+        return;
+      }
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        engine.aimAngle -= 0.12;
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        engine.aimAngle += 0.12;
+      } else if (event.key === " ") {
+        event.preventDefault();
+        fireMarble();
+      }
+    }
+
+    window.addEventListener("keydown", handleMarbleKeys);
+    return () => window.removeEventListener("keydown", handleMarbleKeys);
+  }, [view.status]);
+
+  return (
+    <div className="taya-marbles-shell">
+      <div className="taya-marbles-hud">
+        <ArcadeLevelBadge score={view.score} level2At={260} level3At={680} label={copy.level} />
+        <span>{copy.score}<strong>{view.score}</strong></span>
+        <span>{copy.best}<strong>{view.best}</strong></span>
+        <span className={view.combo > 1 ? "is-hot" : ""}>{copy.combo}<strong>×{Math.max(1, view.combo)}</strong></span>
+      </div>
+      <div className="taya-marbles-stage">
+        <canvas
+          ref={canvasRef}
+          className="taya-marbles-canvas"
+          tabIndex={0}
+          aria-label={copy.aim}
+          onPointerMove={(event) => aimMarbleAt(event.clientX, event.clientY)}
+          onPointerDown={(event) => {
+            aimMarbleAt(event.clientX, event.clientY);
+            if (engineRef.current.status === "running") fireMarble();
+          }}
+        />
+        <div className="taya-marbles-next" aria-label={copy.next}>
+          <small>{copy.next}</small>
+          <span style={{ background: MARBLE_PALETTE[view.nextTone] }} />
+        </div>
+        {view.status !== "running" && (
+          <div className="taya-marbles-overlay">
+            <span className="taya-marbles-orbit" aria-hidden="true"><i /><i /><i /></span>
+            <small>TAYA ARCADE</small>
+            <strong>{view.status === "over" ? copy.gameOver : "TAYA MARBLES"}</strong>
+            {view.status === "over" && <em>{copy.score}: {view.score}</em>}
+            <button type="button" onClick={startMarbles}>
+              {view.status === "over" ? copy.restart : copy.start}
+            </button>
+          </div>
+        )}
+      </div>
+      <p className="taya-marbles-tip">{copy.aim}</p>
+    </div>
+  );
+}
+
 const breakGameCopy = {
   en: {
     open: "Take a tiny break",
@@ -3483,8 +5172,10 @@ const breakGameCopy = {
     quizContinue: "Unlock game",
     quizWrong: "Not quite — try again.",
     flapButton: "FLAP",
-    dropButton: "DROP",
     level: "LEVEL",
+    combo: "Combo",
+    next: "Next",
+    marbleAim: "Endless chain · Match 3+ to push it back · Levels get faster",
     games: {
       bubbles: { title: "Bubble pause", help: "Pop the bubbles at your own pace.", progress: "bubbles popped" },
       odd: { title: "Soft focus", help: "Find the tile that is just a little different.", progress: "rounds found" },
@@ -3493,8 +5184,7 @@ const breakGameCopy = {
       runner: { title: "Taya Runner", help: "Jump over obstacles. The longer you run, the faster it gets.", progress: "running time" },
       snake: { title: "Taya Snake", help: "Collect the fruit without hitting the wall or yourself.", progress: "score" },
       flappy: { title: "Taya Flappy", help: "Flap through the gaps. Each pipe makes the next one faster.", progress: "score" },
-      stack: { title: "Taya Stack", help: "Drop each moving block as neatly as you can.", progress: "blocks" },
-      "2048": { title: "Taya 2048", help: "Combine matching tiles. Reach 128 and 512 to unlock harder levels.", progress: "score" },
+      marbles: { title: "Taya Marbles", help: "An endless jewel chain keeps arriving. Match 3+ to push it back; higher levels move faster and add more colours.", progress: "score" },
     },
   },
   ja: {
@@ -3529,8 +5219,10 @@ const breakGameCopy = {
     quizContinue: "ゲームを開く",
     quizWrong: "もう一度お試しください。",
     flapButton: "FLAP",
-    dropButton: "DROP",
     level: "LEVEL",
+    combo: "コンボ",
+    next: "次",
+    marbleAim: "無限チェーン · 3個以上消すと後退 · レベルごとに高速化",
     games: {
       bubbles: { title: "バブル休憩", help: "気の向くままに、泡をタップしてください。", progress: "個の泡をポップ" },
       odd: { title: "やさしい集中", help: "少しだけ色の違うタイルを見つけてください。", progress: "ラウンド完了" },
@@ -3539,8 +5231,7 @@ const breakGameCopy = {
       runner: { title: "Taya Runner", help: "障害物をジャンプ。走り続けるほどスピードが上がります。", progress: "走行タイム" },
       snake: { title: "Taya Snake", help: "壁や自分にぶつからないようにフルーツを集めます。", progress: "スコア" },
       flappy: { title: "Taya Flappy", help: "タップして隙間を通過。進むほど速くなります。", progress: "スコア" },
-      stack: { title: "Taya Stack", help: "動くブロックをできるだけきれいに積み上げます。", progress: "ブロック" },
-      "2048": { title: "Taya 2048", help: "同じ数字を合体。128と512で難易度が上がります。", progress: "スコア" },
+      marbles: { title: "Taya Marbles", help: "ジュエルは無限に補充されます。3個以上消すと列が後退し、レベルが上がるほど速度と色数が増えます。", progress: "スコア" },
     },
   },
   zh_cn: {
@@ -3575,8 +5266,10 @@ const breakGameCopy = {
     quizContinue: "进入游戏",
     quizWrong: "还差一点，请再试一次。",
     flapButton: "拍动",
-    dropButton: "放下",
     level: "等级",
+    combo: "连击",
+    next: "下一颗",
+    marbleAim: "无限球链 · 消除三颗以上即可后退 · 等级越高越快",
     games: {
       bubbles: { title: "泡泡休息", help: "慢慢戳破泡泡，放松一下。", progress: "个泡泡已戳破" },
       odd: { title: "轻松找不同", help: "找出颜色有一点点不同的方块。", progress: "轮已找到" },
@@ -3585,8 +5278,7 @@ const breakGameCopy = {
       runner: { title: "Taya Runner", help: "跳过障碍物，坚持越久速度越快。", progress: "跑酷时间" },
       snake: { title: "Taya Snake", help: "吃到水果，同时不要撞墙或撞到自己。", progress: "分数" },
       flappy: { title: "Taya Flappy", help: "点击穿过缝隙，每通过一个障碍速度都会加快。", progress: "分数" },
-      stack: { title: "Taya Stack", help: "看准时机，把移动的方块整齐叠起来。", progress: "方块" },
-      "2048": { title: "Taya 2048", help: "合并相同数字，达到128和512后提高难度。", progress: "分数" },
+      marbles: { title: "Taya Marbles", help: "宝石球会无限补充。消除三颗以上会把整条球链往回推；等级越高，速度越快、颜色越多。", progress: "分数" },
     },
   },
   zh_tw: {
@@ -3621,8 +5313,10 @@ const breakGameCopy = {
     quizContinue: "進入遊戲",
     quizWrong: "還差一點，請再試一次。",
     flapButton: "拍動",
-    dropButton: "放下",
     level: "等級",
+    combo: "連擊",
+    next: "下一顆",
+    marbleAim: "無限球鏈 · 消除三顆以上即可後退 · 等級越高越快",
     games: {
       bubbles: { title: "泡泡休息", help: "慢慢戳破泡泡，放鬆一下。", progress: "個泡泡已戳破" },
       odd: { title: "輕鬆找不同", help: "找出顏色有一點點不同的方塊。", progress: "輪已找到" },
@@ -3631,8 +5325,7 @@ const breakGameCopy = {
       runner: { title: "Taya Runner", help: "跳過障礙物，堅持越久速度越快。", progress: "跑酷時間" },
       snake: { title: "Taya Snake", help: "吃到水果，同時不要撞牆或撞到自己。", progress: "分數" },
       flappy: { title: "Taya Flappy", help: "點擊穿過縫隙，每通過一個障礙速度都會加快。", progress: "分數" },
-      stack: { title: "Taya Stack", help: "看準時機，把移動的方塊整齊疊起來。", progress: "方塊" },
-      "2048": { title: "Taya 2048", help: "合併相同數字，達到128和512後提高難度。", progress: "分數" },
+      marbles: { title: "Taya Marbles", help: "寶石球會無限補充。消除三顆以上會把整條球鏈往回推；等級越高，速度越快、顏色越多。", progress: "分數" },
     },
   },
   mn: {
@@ -3667,8 +5360,10 @@ const breakGameCopy = {
     quizContinue: "Unlock game",
     quizWrong: "Not quite — try again.",
     flapButton: "FLAP",
-    dropButton: "DROP",
     level: "LEVEL",
+    combo: "Combo",
+    next: "Next",
+    marbleAim: "Endless chain · Match 3+ to push it back · Levels get faster",
     games: {
       bubbles: { title: "Bubble pause", help: "Pop the bubbles at your own pace.", progress: "bubbles popped" },
       odd: { title: "Soft focus", help: "Find the tile that is just a little different.", progress: "rounds found" },
@@ -3677,16 +5372,198 @@ const breakGameCopy = {
       runner: { title: "Taya Runner", help: "Jump over obstacles. The longer you run, the faster it gets.", progress: "running time" },
       snake: { title: "Taya Snake", help: "Collect the fruit without hitting the wall or yourself.", progress: "score" },
       flappy: { title: "Taya Flappy", help: "Flap through the gaps. Each pipe makes the next one faster.", progress: "score" },
-      stack: { title: "Taya Stack", help: "Drop each moving block as neatly as you can.", progress: "blocks" },
-      "2048": { title: "Taya 2048", help: "Combine matching tiles. Reach 128 and 512 to unlock harder levels.", progress: "score" },
+      marbles: { title: "Taya Marbles", help: "An endless jewel chain keeps arriving. Match 3+ to push it back; higher levels move faster and add more colours.", progress: "score" },
     },
   },
 } as const;
 
+const gomokuGameCopy: Record<NaviLanguage, GomokuCopy> = {
+  en: {
+    choose: "Choose your side",
+    host: "Create game",
+    hostHelp: "Play Black and create a 6-digit room code.",
+    guest: "Join game",
+    guestHelp: "Play White by entering the 6-digit room code.",
+    sameWifi: "Both devices must use the same Wi-Fi",
+    noServer: "No paid server",
+    createCode: "Create 6-digit room",
+    hostCode: "6-digit room code",
+    hostCodeHelp: "Share this 6-digit code with the other player.",
+    replyCode: "Guest reply code",
+    replyCodeHelp: "Send this reply back to the host.",
+    pasteHost: "Enter 6-digit room code",
+    makeReply: "Create reply code",
+    pasteReply: "Paste the guest reply code",
+    connect: "Connect",
+    copy: "Copy code",
+    copied: "Copied",
+    waiting: "Waiting for opponent",
+    connecting: "Connecting",
+    connected: "Direct connection",
+    disconnected: "The connection failed or ended. Please try again.",
+    invalidCode: "Room not found. Check the 6-digit code and try again.",
+    black: "Black",
+    white: "White",
+    yourStone: "You are",
+    yourTurn: "Your turn",
+    theirTurn: "Opponent’s turn",
+    blackWins: "Black wins",
+    whiteWins: "White wins",
+    draw: "Draw",
+    newRound: "New round",
+    leave: "Leave game",
+    back: "Change side",
+  },
+  ja: {
+    choose: "対戦方法を選択",
+    host: "対局を作成",
+    hostHelp: "黒番として6桁のルームコードを作成します。",
+    guest: "対局に参加",
+    guestHelp: "6桁のルームコードを入力して白番で参加します。",
+    sameWifi: "2台とも同じWi-Fiに接続してください",
+    noServer: "追加料金なし",
+    createCode: "6桁のルームを作成",
+    hostCode: "6桁のルームコード",
+    hostCodeHelp: "この6桁のコードを相手に送ってください。",
+    replyCode: "参加者の返信コード",
+    replyCodeHelp: "この返信コードをホストへ送り返してください。",
+    pasteHost: "6桁のルームコード",
+    makeReply: "返信コードを作成",
+    pasteReply: "参加者の返信コードを貼り付け",
+    connect: "接続する",
+    copy: "コードをコピー",
+    copied: "コピー済み",
+    waiting: "相手の参加待ち",
+    connecting: "接続中",
+    connected: "直接接続",
+    disconnected: "接続に失敗したか、接続が終了しました。もう一度お試しください。",
+    invalidCode: "ルームが見つかりません。6桁のコードを確認してください。",
+    black: "黒",
+    white: "白",
+    yourStone: "あなた",
+    yourTurn: "あなたの番",
+    theirTurn: "相手の番",
+    blackWins: "黒の勝ち",
+    whiteWins: "白の勝ち",
+    draw: "引き分け",
+    newRound: "新しい対局",
+    leave: "退出",
+    back: "役割を変更",
+  },
+  zh_cn: {
+    choose: "选择你的身份",
+    host: "创建对局",
+    hostHelp: "执黑棋，并生成一个6位房间码。",
+    guest: "加入对局",
+    guestHelp: "输入6位房间码，执白棋加入。",
+    sameWifi: "两台设备必须连接同一个 Wi-Fi",
+    noServer: "无需付费",
+    createCode: "创建6位房间码",
+    hostCode: "6位房间码",
+    hostCodeHelp: "把这个6位房间码发给另一位玩家。",
+    replyCode: "加入方回复码",
+    replyCodeHelp: "把这个回复码发回给创建对局的人。",
+    pasteHost: "输入6位房间码",
+    makeReply: "生成回复码",
+    pasteReply: "粘贴对方的回复码",
+    connect: "建立连接",
+    copy: "复制连接码",
+    copied: "已复制",
+    waiting: "等待对方加入",
+    connecting: "正在连接",
+    connected: "设备直连",
+    disconnected: "连接失败或已经断开，请重新尝试。",
+    invalidCode: "没有找到房间，请检查6位房间码。",
+    black: "黑棋",
+    white: "白棋",
+    yourStone: "你是",
+    yourTurn: "轮到你",
+    theirTurn: "等待对方",
+    blackWins: "黑棋获胜",
+    whiteWins: "白棋获胜",
+    draw: "平局",
+    newRound: "再来一局",
+    leave: "退出对局",
+    back: "重新选择",
+  },
+  zh_tw: {
+    choose: "選擇你的身分",
+    host: "建立對局",
+    hostHelp: "執黑棋，並產生一個6位房間碼。",
+    guest: "加入對局",
+    guestHelp: "輸入6位房間碼，執白棋加入。",
+    sameWifi: "兩台裝置必須連接同一個 Wi-Fi",
+    noServer: "無需付費",
+    createCode: "建立6位房間碼",
+    hostCode: "6位房間碼",
+    hostCodeHelp: "把這個6位房間碼傳給另一位玩家。",
+    replyCode: "加入方回覆碼",
+    replyCodeHelp: "把這個回覆碼傳回給建立對局的人。",
+    pasteHost: "輸入6位房間碼",
+    makeReply: "產生回覆碼",
+    pasteReply: "貼上對方的回覆碼",
+    connect: "建立連線",
+    copy: "複製連線碼",
+    copied: "已複製",
+    waiting: "等待對方加入",
+    connecting: "正在連線",
+    connected: "裝置直連",
+    disconnected: "連線失敗或已中斷，請重新嘗試。",
+    invalidCode: "找不到房間，請檢查6位房間碼。",
+    black: "黑棋",
+    white: "白棋",
+    yourStone: "你是",
+    yourTurn: "輪到你",
+    theirTurn: "等待對方",
+    blackWins: "黑棋獲勝",
+    whiteWins: "白棋獲勝",
+    draw: "平手",
+    newRound: "再來一局",
+    leave: "退出對局",
+    back: "重新選擇",
+  },
+  mn: {
+    choose: "Choose your side",
+    host: "Create game",
+    hostHelp: "Play Black and create a 6-digit room code.",
+    guest: "Join game",
+    guestHelp: "Play White by entering the 6-digit room code.",
+    sameWifi: "Both devices must use the same Wi-Fi",
+    noServer: "No paid server",
+    createCode: "Create 6-digit room",
+    hostCode: "6-digit room code",
+    hostCodeHelp: "Share this 6-digit code with the other player.",
+    replyCode: "Guest reply code",
+    replyCodeHelp: "Send this reply back to the host.",
+    pasteHost: "Enter 6-digit room code",
+    makeReply: "Create reply code",
+    pasteReply: "Paste the guest reply code",
+    connect: "Connect",
+    copy: "Copy code",
+    copied: "Copied",
+    waiting: "Waiting for opponent",
+    connecting: "Connecting",
+    connected: "Direct connection",
+    disconnected: "The connection failed or ended. Please try again.",
+    invalidCode: "Room not found. Check the 6-digit code and try again.",
+    black: "Black",
+    white: "White",
+    yourStone: "You are",
+    yourTurn: "Your turn",
+    theirTurn: "Opponent’s turn",
+    blackWins: "Black wins",
+    whiteWins: "White wins",
+    draw: "Draw",
+    newRound: "New round",
+    leave: "Leave game",
+    back: "Change side",
+  },
+};
+
 function BreakGame({ language }: { language: NaviLanguage }) {
   const [revealed, setRevealed] = useState(false);
   const [open, setOpen] = useState(false);
-  const [gameKind, setGameKind] = useState<BreakGameKind>("runner");
+  const [gameKind, setGameKind] = useState<BreakGameKind>("marbles");
   const [quiz, setQuiz] = useState<BreakQuiz>({ prompt: "2 + 3", answer: 5 });
   const [quizAnswer, setQuizAnswer] = useState("");
   const [quizPassed, setQuizPassed] = useState(false);
@@ -3716,10 +5593,9 @@ function BreakGame({ language }: { language: NaviLanguage }) {
     runner: { value: 0, max: 1 },
     snake: { value: 0, max: 1 },
     flappy: { value: 0, max: 1 },
-    stack: { value: 0, max: 1 },
-    "2048": { value: 0, max: 1 },
+    marbles: { value: 0, max: 1 },
   }[gameKind];
-  const isArcadeGame = ["runner", "snake", "flappy", "stack", "2048"].includes(gameKind);
+  const isArcadeGame = ["runner", "snake", "flappy", "marbles"].includes(gameKind);
   const isComplete = !isArcadeGame && gameProgress.value >= gameProgress.max;
 
   useEffect(() => {
@@ -3750,7 +5626,7 @@ function BreakGame({ language }: { language: NaviLanguage }) {
   }
 
   function openRunner() {
-    resetGame("runner");
+    resetGame("marbles");
     setQuiz(createBreakQuiz());
     setQuizAnswer("");
     setQuizPassed(false);
@@ -3767,7 +5643,7 @@ function BreakGame({ language }: { language: NaviLanguage }) {
 
     setQuizPassed(true);
     setQuizError(false);
-    resetGame("runner");
+    resetGame("marbles");
   }
 
   function selectOddTile(index: number) {
@@ -3806,36 +5682,19 @@ function BreakGame({ language }: { language: NaviLanguage }) {
   }
 
   function renderCurrentGame() {
-    if (gameKind === "2048") {
+    if (gameKind === "marbles") {
       return (
-        <Taya2048
+        <TayaMarbles
           copy={{
             start: copy.startButton,
+            restart: copy.snakeRestart,
             gameOver: copy.snakeGameOver,
             score: copy.score,
             best: copy.best,
-            restart: copy.snakeRestart,
-            up: copy.up,
-            down: copy.down,
-            left: copy.left,
-            right: copy.right,
             level: copy.level,
-          }}
-        />
-      );
-    }
-
-    if (gameKind === "stack") {
-      return (
-        <TayaStack
-          copy={{
-            start: copy.startButton,
-            gameOver: copy.snakeGameOver,
-            score: copy.score,
-            best: copy.best,
-            restart: copy.snakeRestart,
-            drop: copy.dropButton,
-            level: copy.level,
+            combo: copy.combo,
+            next: copy.next,
+            aim: copy.marbleAim,
           }}
         />
       );
@@ -3984,7 +5843,7 @@ function BreakGame({ language }: { language: NaviLanguage }) {
       {open && (
         <div className="break-game-backdrop" role="presentation" onMouseDown={() => setOpen(false)}>
           <section
-            className={`break-game-card ${quizPassed && isArcadeGame ? "is-runner" : "is-quiz"}`}
+            className={`break-game-card ${quizPassed && isArcadeGame ? "is-runner is-25d" : "is-quiz"}`}
             role="dialog"
             aria-modal="true"
             aria-labelledby="break-game-title"
@@ -4038,7 +5897,7 @@ function BreakGame({ language }: { language: NaviLanguage }) {
               <>
             <div className="break-game-heading">
               <div>
-                <span className="break-game-kicker">TAYA TOOL · GAME</span>
+                <span className="break-game-kicker">TAYA TOOL · 2.5D ARCADE</span>
                 <h2 id="break-game-title">{copy.games[gameKind].title}</h2>
                 <p>{copy.games[gameKind].help}</p>
               </div>
@@ -4048,6 +5907,15 @@ function BreakGame({ language }: { language: NaviLanguage }) {
             </div>
 
             <div className="break-game-tabs" role="tablist" aria-label="Choose game">
+              <button
+                className={gameKind === "marbles" ? "is-active" : ""}
+                type="button"
+                role="tab"
+                aria-selected={gameKind === "marbles"}
+                onClick={() => resetGame("marbles")}
+              >
+                Marbles
+              </button>
               <button
                 className={gameKind === "runner" ? "is-active" : ""}
                 type="button"
@@ -4074,24 +5942,6 @@ function BreakGame({ language }: { language: NaviLanguage }) {
                 onClick={() => resetGame("flappy")}
               >
                 Flappy
-              </button>
-              <button
-                className={gameKind === "stack" ? "is-active" : ""}
-                type="button"
-                role="tab"
-                aria-selected={gameKind === "stack"}
-                onClick={() => resetGame("stack")}
-              >
-                Stack
-              </button>
-              <button
-                className={gameKind === "2048" ? "is-active" : ""}
-                type="button"
-                role="tab"
-                aria-selected={gameKind === "2048"}
-                onClick={() => resetGame("2048")}
-              >
-                2048
               </button>
             </div>
 
@@ -4179,16 +6029,23 @@ function TayaNaviPanel({
   }
 
   function generateSearch() {
-    if (!expandedCompanies.length) {
-      setNotice(t.companyRequired);
+    if (!expandedCompanies.length && !expandedKeywords) {
+      setNotice(t.searchRequired);
       setNoticeType("error");
       return;
     }
-    const filters = buildNaviFilters(expandedCompanies, mode);
-    const keywordBlock = expandedKeywords
-      ? `%2Ckeywords%3A${encodeNaviKeyword(expandedKeywords)}`
-      : "";
-    const query = `(spellCorrectionEnabled%3Atrue%2CrecentSearchParam%3A(doLogHistory%3Atrue)%2Cfilters%3AList(${filters})${keywordBlock})`;
+    const queryParts = [
+      "spellCorrectionEnabled%3Atrue",
+      "recentSearchParam%3A(doLogHistory%3Atrue)",
+    ];
+    if (expandedCompanies.length) {
+      const filters = buildNaviFilters(expandedCompanies, mode);
+      queryParts.push(`filters%3AList(${filters})`);
+    }
+    if (expandedKeywords) {
+      queryParts.push(`keywords%3A${encodeNaviKeyword(expandedKeywords)}`);
+    }
+    const query = `(${queryParts.join("%2C")})`;
     const url = `https://www.linkedin.com/sales/search/people?query=${query}&viewAllFilters=true`;
     const item: NaviHistoryItem = {
       companies,
@@ -4424,7 +6281,14 @@ function TayaNaviPanel({
               <article className="navi-history-item" key={`${item.time}-${index}`}>
                 <div>
                   <strong>{item.time}</strong>
-                  <p>{naviUniq((item.companies || "").split(NAVI_SPLIT_REGEX)).join(" · ")}</p>
+                  <p>
+                    {naviUniq((item.companies || "").split(NAVI_SPLIT_REGEX)).join(" · ") ||
+                      item.keywords
+                        ?.map((value) => formatNaviKeywordGroup(value))
+                        .filter(Boolean)
+                        .join(" AND ") ||
+                      "—"}
+                  </p>
                 </div>
                 <div className="history-actions">
                   <button className="button button-muted" type="button" onClick={() => loadHistoryItem(item)}>
@@ -4508,7 +6372,22 @@ function SlackFormatterPanel({
       formatSlackExpert(expert),
       formatSlackExpertHtml(expert),
     );
-    setCopiedId(expert.id);
+    setCopiedId(`${expert.id}-slack`);
+    window.setTimeout(() => setCopiedId(""), 1800);
+  }
+
+  async function copySingleExpertList(expert: SlackExpertRecord) {
+    await writeSlackClipboard(
+      formatSlackExpertList([expert]),
+      formatSlackExpertListHtml([expert]),
+    );
+    setCopiedId(`${expert.id}-expert-list`);
+    window.setTimeout(() => setCopiedId(""), 1800);
+  }
+
+  async function copySingleExpertForCanvas(expert: SlackExpertRecord) {
+    await writeCanvasClipboard(formatSlackExpertForCanvas(expert));
+    setCopiedId(`${expert.id}-canvas`);
     window.setTimeout(() => setCopiedId(""), 1800);
   }
 
@@ -4639,13 +6518,20 @@ function SlackFormatterPanel({
             {experts.length > 0 && (
               <div className="slack-results-actions">
                 <button
+                  className="button button-primary slack-canvas-button"
+                  type="button"
+                  onClick={copyForCanvas}
+                >
+                  {copiedId === "canvas" ? t.copiedCanvas : t.copyAllCanvas}
+                </button>
+                <button
                   className="button button-muted"
                   type="button"
                   onClick={copyExpertList}
                 >
                   {copiedId === "expert-list"
                     ? t.copiedExpertList
-                    : t.copyExpertList}
+                    : t.copyAllExpertList}
                 </button>
                 <button
                   className="button button-secondary"
@@ -4653,13 +6539,6 @@ function SlackFormatterPanel({
                   onClick={copyAllExperts}
                 >
                   {copiedId === "all" ? t.copiedAll : t.copyAll}
-                </button>
-                <button
-                  className="button button-primary slack-canvas-button"
-                  type="button"
-                  onClick={copyForCanvas}
-                >
-                  {copiedId === "canvas" ? t.copiedCanvas : t.copyCanvas}
                 </button>
               </div>
             )}
@@ -4690,11 +6569,29 @@ function SlackFormatterPanel({
                           {isEditing ? t.doneEditing : t.edit}
                         </button>
                         <button
+                          className="button button-muted slack-copy-button"
+                          type="button"
+                          onClick={() => copySingleExpertForCanvas(expert)}
+                        >
+                          {copiedId === `${expert.id}-canvas`
+                            ? t.copiedCanvas
+                            : t.copyCanvas}
+                        </button>
+                        <button
+                          className="button button-muted slack-copy-button"
+                          type="button"
+                          onClick={() => copySingleExpertList(expert)}
+                        >
+                          {copiedId === `${expert.id}-expert-list`
+                            ? t.copiedExpertList
+                            : t.copyExpertList}
+                        </button>
+                        <button
                           className="button button-primary slack-copy-button"
                           type="button"
                           onClick={() => copyExpert(expert)}
                         >
-                          {copiedId === expert.id ? t.copied : t.copy}
+                          {copiedId === `${expert.id}-slack` ? t.copied : t.copy}
                         </button>
                       </div>
                     </div>
@@ -4868,6 +6765,561 @@ function SlackFormatterPanel({
         </section>
 
         <footer>Taya Tool · Slack Formatter</footer>
+      </div>
+    </main>
+  );
+}
+
+function JaiCasePanel({
+  theme,
+  language,
+  onToggleTheme,
+  onLanguageChange,
+  onSelectTool,
+}: {
+  theme: "light" | "dark";
+  language: NaviLanguage;
+  onToggleTheme: () => void;
+  onLanguageChange: (language: NaviLanguage) => void;
+  onSelectTool: (tool: ToolView) => void;
+}) {
+  const uiLanguage: Language =
+    language === "ja"
+      ? "ja"
+      : language === "zh_cn" || language === "zh_tw"
+        ? "zh"
+        : "en";
+  const t = JAI_TEXT[uiLanguage];
+  const [rawProfiles, setRawProfiles] = useState("");
+  const [experts, setExperts] = useState<JaiExpertRecord[]>([]);
+  const [notice, setNotice] = useState("");
+  const [noticeType, setNoticeType] = useState<"success" | "error" | "">("");
+  const [exporting, setExporting] = useState(false);
+  const [copiedForExcel, setCopiedForExcel] = useState(false);
+  const [fileName, setFileName] = useState(
+    `Jai_Case_ExpertTracker_${todayForDateInput()}.xlsx`,
+  );
+
+  const totalWarnings = useMemo(
+    () => experts.reduce((total, expert) => total + expert.warnings.length, 0),
+    [experts],
+  );
+
+  function parseProfiles() {
+    const parsed = parseJaiExperts(rawProfiles);
+    if (!parsed.length) {
+      setExperts([]);
+      setNotice(t.parseError);
+      setNoticeType("error");
+      return;
+    }
+    setExperts(parsed);
+    setNotice(`${parsed.length} ${t.parsed}`);
+    setNoticeType("success");
+    window.setTimeout(() => {
+      document
+        .getElementById("jai-review")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  }
+
+  function clearAll() {
+    setRawProfiles("");
+    setExperts([]);
+    setNotice("");
+    setNoticeType("");
+    setCopiedForExcel(false);
+  }
+
+  function updateExpert<K extends keyof Omit<JaiExpertRecord, "warnings">>(
+    expertId: string,
+    field: K,
+    value: JaiExpertRecord[K],
+  ) {
+    setExperts((current) =>
+      current.map((expert) => {
+        if (expert.id !== expertId) return expert;
+        const next = { ...expert, [field]: value };
+        return { ...next, warnings: calculateJaiWarnings(next) };
+      }),
+    );
+  }
+
+  function toggleApplication(expertId: string, code: string) {
+    setExperts((current) =>
+      current.map((expert) => {
+        if (expert.id !== expertId) return expert;
+        const applicationCodes = expert.applicationCodes.includes(code)
+          ? expert.applicationCodes.filter((item) => item !== code)
+          : [...expert.applicationCodes, code].sort();
+        const next = { ...expert, applicationCodes };
+        return { ...next, warnings: calculateJaiWarnings(next) };
+      }),
+    );
+  }
+
+  function removeExpert(expertId: string) {
+    setExperts((current) => current.filter((expert) => expert.id !== expertId));
+  }
+
+  async function copyForExcel() {
+    if (!experts.length) {
+      setNotice(t.empty);
+      setNoticeType("error");
+      return;
+    }
+    if (experts.some((expert) => expert.warnings.length > 0)) {
+      setNotice(t.missing);
+      setNoticeType("error");
+      document
+        .getElementById("jai-review")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+
+    try {
+      await writeExcelClipboard(
+        formatJaiExcelPlainText(experts),
+        formatJaiExcelHtml(experts),
+      );
+      setCopiedForExcel(true);
+      setNotice(t.copiedExcel);
+      setNoticeType("success");
+      window.setTimeout(() => setCopiedForExcel(false), 1800);
+    } catch (error) {
+      console.error(error);
+      setNotice(t.copyError);
+      setNoticeType("error");
+    }
+  }
+
+  async function exportClientExcel() {
+    if (!experts.length) {
+      setNotice(t.empty);
+      setNoticeType("error");
+      return;
+    }
+    if (experts.some((expert) => expert.warnings.length > 0)) {
+      setNotice(t.missing);
+      setNoticeType("error");
+      document
+        .getElementById("jai-review")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+
+    setExporting(true);
+    setNotice("");
+    setNoticeType("");
+    try {
+      const [{ Workbook }, templateResponse] = await Promise.all([
+        import("exceljs"),
+        fetch("/BCG-ThirdBridge-ExpertTracker.xlsx"),
+      ]);
+      if (!templateResponse.ok) {
+        throw new Error(`Template request failed: ${templateResponse.status}`);
+      }
+
+      const workbook = new Workbook();
+      await workbook.xlsx.load(await templateResponse.arrayBuffer());
+      const sheet = workbook.getWorksheet("Expert tracker");
+      if (!sheet) throw new Error("Expert tracker sheet was not found.");
+
+      const styleSourceRow = sheet.getRow(7);
+      const lastTemplateRow = Math.max(306, experts.length + 5);
+      for (let rowNumber = 6; rowNumber <= lastTemplateRow; rowNumber += 1) {
+        const row = sheet.getRow(rowNumber);
+        for (let column = 1; column <= 9; column += 1) {
+          const cell = row.getCell(column);
+          cell.value = null;
+          const sourceCell = styleSourceRow.getCell(column);
+          cell.style = JSON.parse(JSON.stringify(sourceCell.style));
+          cell.dataValidation = JSON.parse(
+            JSON.stringify(sourceCell.dataValidation ?? {}),
+          );
+        }
+        row.height = styleSourceRow.height || 30;
+      }
+
+      experts.forEach((expert, index) => {
+        const row = sheet.getRow(index + 6);
+        const values: Array<string | Date> = [
+          "ThirdBridge",
+          new Date(`${expert.dateFound}T12:00:00`),
+          expert.applicationCodes.join(", "),
+          expert.company,
+          expert.status,
+          expert.name,
+          expert.position,
+          expert.cost,
+          expert.screening,
+        ];
+        values.forEach((value, valueIndex) => {
+          const cell = row.getCell(valueIndex + 1);
+          cell.value = value;
+          cell.alignment = {
+            ...cell.alignment,
+            vertical: "top",
+            wrapText: true,
+          };
+        });
+        row.getCell(2).numFmt = "d/m/yyyy";
+        row.height = Math.min(
+          260,
+          Math.max(34, 34 + Math.ceil(expert.screening.length / 145) * 14),
+        );
+      });
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer as BlobPart], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = safeFileName(
+        /\.xlsx$/i.test(fileName) ? fileName : `${fileName}.xlsx`,
+      );
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+      setNotice(t.exported);
+      setNoticeType("success");
+    } catch (error) {
+      console.error(error);
+      setNotice(t.exportError);
+      setNoticeType("error");
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  return (
+    <main className="app-shell jai-shell">
+      <div className="container">
+        <header className="topbar">
+          <div>
+            <div className="eyebrow">TAYA TOOL</div>
+            <h1>
+              Jai case <span>{t.version}</span>
+            </h1>
+            <p className="subtitle">{t.subtitle}</p>
+          </div>
+          <div className="controls">
+            <label className="sr-only" htmlFor="jai-language">
+              Language
+            </label>
+            <select
+              id="jai-language"
+              value={language}
+              onChange={(event) =>
+                onLanguageChange(event.target.value as NaviLanguage)
+              }
+            >
+              <option value="en">English</option>
+              <option value="ja">日本語</option>
+              <option value="zh_cn">中文（简体）</option>
+              <option value="zh_tw">中文（繁體）</option>
+              <option value="mn">Монгол</option>
+            </select>
+            <button
+              className="theme-toggle"
+              type="button"
+              onClick={onToggleTheme}
+              aria-label="Toggle theme"
+            >
+              {theme === "light" ? "🌙" : "☀️"}
+            </button>
+          </div>
+        </header>
+
+        <ToolSwitcher active="jai" onSelect={onSelectTool} />
+
+        <div className="privacy-note jai-privacy-note">
+          <span aria-hidden="true">🔒</span>
+          {t.privacy}
+        </div>
+
+        <section className="card">
+          <div className="section-heading">
+            <div>
+              <h2>{t.pasteTitle}</h2>
+              <p>{t.pasteHelp}</p>
+            </div>
+          </div>
+          <label className="field-label" htmlFor="jai-raw-experts">
+            {t.rawLabel}
+          </label>
+          <textarea
+            id="jai-raw-experts"
+            className="raw-input jai-raw-input"
+            value={rawProfiles}
+            onChange={(event) => setRawProfiles(event.target.value)}
+            placeholder={t.rawPlaceholder}
+            spellCheck={false}
+          />
+          <div className="button-row">
+            <button
+              className="button button-primary"
+              type="button"
+              onClick={parseProfiles}
+            >
+              {t.parse}
+            </button>
+            <button
+              className="button button-danger"
+              type="button"
+              onClick={clearAll}
+            >
+              {t.clear}
+            </button>
+          </div>
+        </section>
+
+        <section className="card jai-review" id="jai-review">
+          <div className="section-heading">
+            <div>
+              <h2>{t.reviewTitle}</h2>
+              <p>{t.reviewHelp}</p>
+            </div>
+            {experts.length > 0 && (
+              <div className="jai-review-stats">
+                <span className="stat-pill good">{experts.length} experts</span>
+                <span className={`stat-pill ${totalWarnings ? "warn" : "good"}`}>
+                  {totalWarnings} {t.required}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {!experts.length ? (
+            <div className="jai-empty-state">{t.noResults}</div>
+          ) : (
+            <div className="jai-expert-list">
+              {experts.map((expert) => (
+                <details className="jai-expert-card" key={expert.id} open>
+                  <summary>
+                    <span className="jai-expert-number">{expert.number}</span>
+                    <span className="jai-expert-summary">
+                      <strong>{expert.name || "—"}</strong>
+                      <small>
+                        {expert.status} · {expert.position || "—"} ·{" "}
+                        {expert.company || "—"}
+                      </small>
+                    </span>
+                    {expert.warnings.length > 0 && (
+                      <span className="jai-warning-chip">
+                        {expert.warnings.length} {t.required}
+                      </span>
+                    )}
+                  </summary>
+
+                  <div className="jai-expert-body">
+                    <div className="jai-form-grid">
+                      <label>
+                        <span>
+                          {t.vendor} <em>{t.fixed}</em>
+                        </span>
+                        <input value="ThirdBridge" readOnly />
+                      </label>
+                      <label>
+                        <span>{t.date}</span>
+                        <input
+                          className={!expert.dateFound ? "jai-invalid" : ""}
+                          type="date"
+                          value={expert.dateFound}
+                          onChange={(event) =>
+                            updateExpert(
+                              expert.id,
+                              "dateFound",
+                              event.target.value,
+                            )
+                          }
+                        />
+                      </label>
+
+                      <fieldset
+                        className={`jai-application-field ${
+                          expert.applicationCodes.length ? "" : "jai-invalid"
+                        }`}
+                      >
+                        <legend>
+                          {t.application} <small>{t.applicationHelp}</small>
+                        </legend>
+                        <div className="jai-application-grid">
+                          {JAI_APPLICATION_AREAS.map(([code, label]) => {
+                            const selected =
+                              expert.applicationCodes.includes(code);
+                            return (
+                              <label
+                                className={`jai-application-option ${
+                                  selected ? "is-selected" : ""
+                                }`}
+                                key={`${expert.id}-${code}`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={selected}
+                                  onChange={() =>
+                                    toggleApplication(expert.id, code)
+                                  }
+                                />
+                                <strong>{code}</strong>
+                                <span>{label}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </fieldset>
+
+                      <label>
+                        <span>{t.company}</span>
+                        <input
+                          className={!expert.company ? "jai-invalid" : ""}
+                          value={expert.company}
+                          onChange={(event) =>
+                            updateExpert(
+                              expert.id,
+                              "company",
+                              event.target.value,
+                            )
+                          }
+                        />
+                      </label>
+                      <label>
+                        <span>{t.status}</span>
+                        <select
+                          value={expert.status}
+                          onChange={(event) =>
+                            updateExpert(
+                              expert.id,
+                              "status",
+                              event.target.value as JaiExpertRecord["status"],
+                            )
+                          }
+                        >
+                          <option value="Former">Former</option>
+                          <option value="Current">Current</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>{t.name}</span>
+                        <input
+                          className={!expert.name ? "jai-invalid" : ""}
+                          value={expert.name}
+                          onChange={(event) =>
+                            updateExpert(expert.id, "name", event.target.value)
+                          }
+                        />
+                      </label>
+                      <label>
+                        <span>{t.position}</span>
+                        <input
+                          className={!expert.position ? "jai-invalid" : ""}
+                          value={expert.position}
+                          onChange={(event) =>
+                            updateExpert(
+                              expert.id,
+                              "position",
+                              event.target.value,
+                            )
+                          }
+                        />
+                      </label>
+                      <label>
+                        <span>{t.cost}</span>
+                        <input
+                          className={!expert.cost ? "jai-invalid" : ""}
+                          value={expert.cost}
+                          onChange={(event) =>
+                            updateExpert(expert.id, "cost", event.target.value)
+                          }
+                          placeholder="USD 1,180"
+                        />
+                      </label>
+                      <label className="jai-wide-field">
+                        <span>{t.screening}</span>
+                        <textarea
+                          className={!expert.screening ? "jai-invalid" : ""}
+                          value={expert.screening}
+                          onChange={(event) =>
+                            updateExpert(
+                              expert.id,
+                              "screening",
+                              event.target.value,
+                            )
+                          }
+                          spellCheck={false}
+                        />
+                      </label>
+                    </div>
+
+                    <div className="jai-expert-footer">
+                      <span>
+                        {expert.warnings.length
+                          ? expert.warnings.join(" · ")
+                          : "Ready"}
+                      </span>
+                      <button
+                        className="text-danger"
+                        type="button"
+                        onClick={() => removeExpert(expert.id)}
+                      >
+                        {t.remove}
+                      </button>
+                    </div>
+                  </div>
+                </details>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="card jai-export-card">
+          <div className="section-heading">
+            <div>
+              <h2>{t.exportTitle}</h2>
+              <p>{t.exportHelp}</p>
+              <p className="jai-copy-help">{t.copyHelp}</p>
+            </div>
+          </div>
+          <div className="jai-export-row">
+            <label>
+              <span>{t.fileName}</span>
+              <input
+                value={fileName}
+                onChange={(event) => setFileName(event.target.value)}
+              />
+            </label>
+            <div className="jai-export-actions">
+              <button
+                className="button button-primary"
+                type="button"
+                disabled={!experts.length}
+                onClick={copyForExcel}
+              >
+                {copiedForExcel ? t.copiedExcel : t.copyExcel}
+              </button>
+              <button
+                className="button button-secondary"
+                type="button"
+                disabled={exporting || !experts.length}
+                onClick={exportClientExcel}
+              >
+                {exporting ? t.exporting : t.export}
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {notice && (
+          <div className={`message jai-message ${noticeType}`} role="status">
+            {notice}
+          </div>
+        )}
+
+        <footer>Taya Tool · Jai case</footer>
       </div>
     </main>
   );
@@ -5827,6 +8279,21 @@ export default function Home() {
     return (
       <>
         <SlackFormatterPanel
+          theme={theme}
+          language={language}
+          onToggleTheme={changeTheme}
+          onLanguageChange={changeLanguage}
+          onSelectTool={setActiveTool}
+        />
+        <BreakGame language={language} />
+      </>
+    );
+  }
+
+  if (activeTool === "jai") {
+    return (
+      <>
+        <JaiCasePanel
           theme={theme}
           language={language}
           onToggleTheme={changeTheme}
