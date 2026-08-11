@@ -4789,13 +4789,13 @@ function TayaMarbles({ copy }: { copy: MarbleGameCopy }) {
   }, []);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const context = canvas.getContext("2d");
-    if (!context) return;
     let frame = 0;
 
     function render(time: number) {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const context = canvas.getContext("2d");
+      if (!context) return;
       const width = Math.max(1, canvas.clientWidth);
       const height = Math.max(1, canvas.clientHeight);
       const pixelRatio = Math.min(2, window.devicePixelRatio || 1);
