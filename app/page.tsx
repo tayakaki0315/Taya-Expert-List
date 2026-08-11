@@ -59,12 +59,14 @@ type JaiExpertRecord = {
   number: string;
   dateFound: string;
   applicationCodes: string[];
+  otherApplication: string;
   company: string;
   status: "Former" | "Current";
   name: string;
   position: string;
   cost: string;
   screening: string;
+  region: string;
   warnings: string[];
 };
 
@@ -98,7 +100,8 @@ const JAI_ACCESS_TEXT = {
     unlock: "Unlock Jai case",
     checking: "Checking…",
     error: "The password is incorrect. Please try again.",
-    privacy: "This restriction applies only to Jai case. Other Taya Tool features remain public.",
+    privacy:
+      "This restriction applies only to Jai case. Other Taya Tool features remain public.",
   },
   ja: {
     eyebrow: "制限付きアクセス",
@@ -109,7 +112,8 @@ const JAI_ACCESS_TEXT = {
     unlock: "Jai caseを開く",
     checking: "確認中…",
     error: "パスワードが正しくありません。もう一度お試しください。",
-    privacy: "アクセス制限はJai caseのみに適用されます。ほかの機能は引き続き公開されています。",
+    privacy:
+      "アクセス制限はJai caseのみに適用されます。ほかの機能は引き続き公開されています。",
   },
   zh_cn: {
     eyebrow: "受限访问",
@@ -142,7 +146,8 @@ const JAI_ACCESS_TEXT = {
     unlock: "Jai case нээх",
     checking: "Шалгаж байна…",
     error: "Нууц үг буруу байна. Дахин оролдоно уу.",
-    privacy: "Энэ хязгаарлалт зөвхөн Jai case-д хамаарна. Taya Tool-ийн бусад хэсэг нээлттэй хэвээр байна.",
+    privacy:
+      "Энэ хязгаарлалт зөвхөн Jai case-д хамаарна. Taya Tool-ийн бусад хэсэг нээлттэй хэвээр байна.",
   },
 } as const;
 
@@ -157,7 +162,7 @@ function jaiAccessHash(value: string) {
 
 const JAI_TEXT = {
   en: {
-    version: "v1.2",
+    version: "v1.5",
     subtitle:
       "Convert expert profiles into the client’s Expert Tracker format.",
     privacy:
@@ -180,12 +185,15 @@ const JAI_TEXT = {
     date: "Date expert was found",
     application: "Application area (code)",
     applicationHelp: "Multiple selections are allowed.",
+    otherApplication: "Other",
+    otherApplicationPlaceholder: "Enter another application area…",
     company: "Company relevant for expert",
     status: "Former / Current",
     name: "Name of expert",
     position: "Position of expert",
     cost: "Cost of interview",
     screening: "Screening answers",
+    region: "Region (markets the expert can speak about)",
     fixed: "Fixed",
     required: "Required",
     exportTitle: "3. Create client Excel",
@@ -194,8 +202,8 @@ const JAI_TEXT = {
     copyHelp:
       "Copy data rows without headers and paste them into cell A6 of the client workbook.",
     fileName: "File name",
-    copyExcel: "Copy A–I for Excel",
-    copiedExcel: "A–I copied. Paste into cell A6.",
+    copyExcel: "Copy A–K for Excel",
+    copiedExcel: "A–K copied. Paste into cell A6.",
     copyError: "The Excel rows could not be copied. Please try again.",
     export: "Download client Excel",
     exporting: "Creating Excel…",
@@ -207,7 +215,7 @@ const JAI_TEXT = {
     noResults: "Parsed experts will appear here.",
   },
   ja: {
-    version: "v1.2",
+    version: "v1.5",
     subtitle:
       "エキスパート情報をクライアント指定の Expert Tracker 形式に変換します。",
     privacy:
@@ -230,12 +238,15 @@ const JAI_TEXT = {
     date: "Date expert was found",
     application: "Application area (code)",
     applicationHelp: "複数選択できます。",
+    otherApplication: "その他",
+    otherApplicationPlaceholder: "その他のApplication areaを入力…",
     company: "Company relevant for expert",
     status: "Former / Current",
     name: "Name of expert",
     position: "Position of expert",
     cost: "Cost of interview",
     screening: "Screening answers",
+    region: "Region（対応可能な市場・地域）",
     fixed: "固定",
     required: "必須",
     exportTitle: "3. クライアントExcelを作成",
@@ -244,8 +255,8 @@ const JAI_TEXT = {
     copyHelp:
       "ヘッダーを含まないデータ行をコピーします。クライアントExcelのA6セルへ貼り付けてください。",
     fileName: "ファイル名",
-    copyExcel: "Excel用 A–I をコピー",
-    copiedExcel: "A–Iをコピーしました。A6セルに貼り付けてください。",
+    copyExcel: "Excel用 A–K をコピー",
+    copiedExcel: "A–Kをコピーしました。A6セルに貼り付けてください。",
     copyError: "Excel用データをコピーできませんでした。もう一度お試しください。",
     export: "クライアントExcelをダウンロード",
     exporting: "Excelを作成中…",
@@ -257,7 +268,7 @@ const JAI_TEXT = {
     noResults: "解析後、ここにエキスパートが表示されます。",
   },
   zh: {
-    version: "v1.2",
+    version: "v1.5",
     subtitle: "将专家信息自动转换为客户指定的 Expert Tracker 格式。",
     privacy: "所有内容只在当前浏览器中处理，不会上传或保存到服务器。",
     pasteTitle: "1. 粘贴专家信息",
@@ -277,12 +288,15 @@ const JAI_TEXT = {
     date: "Date expert was found",
     application: "Application area (code)",
     applicationHelp: "可以多选。",
+    otherApplication: "其他",
+    otherApplicationPlaceholder: "填写其他 Application area…",
     company: "Company relevant for expert",
     status: "Former / Current",
     name: "Name of expert",
     position: "Position of expert",
     cost: "Cost of interview",
     screening: "Screening answers",
+    region: "Region（专家可讨论的市场或地区）",
     fixed: "固定",
     required: "必填",
     exportTitle: "3. 生成客户 Excel",
@@ -290,8 +304,8 @@ const JAI_TEXT = {
       "保留客户原始模板的三个 Sheet 和格式，并自动填写 Expert tracker。",
     copyHelp: "复制不含表头的数据行，然后粘贴到客户 Excel 的 A6 单元格。",
     fileName: "文件名",
-    copyExcel: "复制 A–I 到 Excel",
-    copiedExcel: "A–I 已复制，请粘贴到 A6 单元格。",
+    copyExcel: "复制 A–K 到 Excel",
+    copiedExcel: "A–K 已复制，请粘贴到 A6 单元格。",
     copyError: "无法复制 Excel 数据，请重试。",
     export: "下载客户 Excel",
     exporting: "正在生成 Excel…",
@@ -1333,13 +1347,25 @@ function calculateJaiWarnings(
   const warnings: string[] = [];
   if (!record.dateFound) warnings.push("Date expert was found");
   if (!record.applicationCodes.length) warnings.push("Application area");
+  if (
+    record.applicationCodes.includes("Other") &&
+    !record.otherApplication.trim()
+  ) {
+    warnings.push("Other application area");
+  }
   if (!record.company) warnings.push("Company");
   if (!record.status) warnings.push("Former / Current");
   if (!record.name) warnings.push("Name");
   if (!record.position) warnings.push("Position");
   if (!record.cost) warnings.push("Cost");
-  if (!record.screening) warnings.push("Screening answers");
   return warnings;
+}
+
+function extractJaiRegion(block: string) {
+  const match = block.match(
+    /(?:Region(?:\s*\([^\n)]*\))?|Markets?\s*(?:\/|and)?\s*regions?)\s*:\s*([^\n]+)/i,
+  );
+  return cleanText(match?.[1] ?? "");
 }
 
 function parseJaiExperts(raw: string) {
@@ -1370,12 +1396,14 @@ function parseJaiExperts(raw: string) {
       number: base.number,
       dateFound: todayForDateInput(),
       applicationCodes: [],
+      otherApplication: "",
       company,
       status,
       name: base.name,
       position,
       cost: normalizeJaiCost(base.fee),
       screening: base.screening,
+      region: extractJaiRegion(block),
     };
 
     return [{ ...draft, warnings: calculateJaiWarnings(draft) }];
@@ -1388,17 +1416,28 @@ function formatJaiDateForExcel(value: string) {
   return `${Number(match[3])}/${Number(match[2])}/${match[1]}`;
 }
 
+function jaiApplicationAreaNames(record: JaiExpertRecord) {
+  return record.applicationCodes
+    .map((code) => {
+      if (code === "Other") return record.otherApplication.trim();
+      return JAI_APPLICATION_AREAS.find(([areaCode]) => areaCode === code)?.[1];
+    })
+    .filter((value): value is string => Boolean(value));
+}
+
 function jaiExcelRows(records: JaiExpertRecord[]) {
   return records.map((record) => [
     "ThirdBridge",
     formatJaiDateForExcel(record.dateFound),
     record.applicationCodes.join(", "),
+    jaiApplicationAreaNames(record).join(", "),
     record.company,
     record.status,
     record.name,
     record.position,
     record.cost,
     record.screening,
+    record.region,
   ]);
 }
 
@@ -1422,7 +1461,7 @@ function formatJaiExcelHtml(records: JaiExpertRecord[]) {
         `<tr>${row
           .map(
             (value, columnIndex) =>
-              `<td${columnIndex === 8 ? ' class="jai-screening"' : ""}>${escapeHtml(value).replace(/\n/g, "<br>")}</td>`,
+              `<td${columnIndex === 9 ? ' class="jai-screening"' : ""}>${escapeHtml(value).replace(/\n/g, "<br>")}</td>`,
           )
           .join("")}</tr>`,
     )
@@ -4750,13 +4789,13 @@ function TayaMarbles({ copy }: { copy: MarbleGameCopy }) {
   }, []);
 
   useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const context = canvas.getContext("2d");
+    if (!context) return;
     let frame = 0;
 
     function render(time: number) {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const context = canvas.getContext("2d");
-      if (!context) return;
       const width = Math.max(1, canvas.clientWidth);
       const height = Math.max(1, canvas.clientHeight);
       const pixelRatio = Math.min(2, window.devicePixelRatio || 1);
@@ -6984,7 +7023,7 @@ function JaiCasePanel({
     try {
       const [{ Workbook }, templateResponse] = await Promise.all([
         import("exceljs"),
-        fetch("/BCG-ThirdBridge-ExpertTracker.xlsx"),
+        fetch("/BCG-ThirdBridge-ExpertTracker.xlsx?v=1.5"),
       ]);
       if (!templateResponse.ok) {
         throw new Error(`Template request failed: ${templateResponse.status}`);
@@ -6995,20 +7034,109 @@ function JaiCasePanel({
       const sheet = workbook.getWorksheet("Expert tracker");
       if (!sheet) throw new Error("Expert tracker sheet was not found.");
 
-      const styleSourceRow = sheet.getRow(7);
+      // Keep only the title and header area frozen. Row 6 contains the first
+      // expert and must scroll normally with the remaining expert rows.
+      sheet.views = [
+        {
+          state: "frozen",
+          xSplit: 0,
+          ySplit: 5,
+          topLeftCell: "A6",
+          activeCell: "A6",
+          showGridLines: true,
+        },
+      ];
+
+      const cloneExcelModel = (value: unknown) =>
+        JSON.parse(JSON.stringify(value ?? {}));
+      const trackerHeaders = [
+        "Vendor company",
+        "Date expert was found",
+        "Application area (code)",
+        "Application area",
+        "Company relevant for expert",
+        "Former / Current",
+        "Full name of expert",
+        "Position of expert",
+        "Cost of interview",
+        "Screening answers",
+        "Region (markets the expert can speak about)",
+      ];
+      // The client template has ten source columns. Application area is added
+      // as a new column D while preserving the original formatting of the
+      // remaining columns.
+      const sourceColumnForOutput = [1, 2, 3, 4, 4, 5, 6, 7, 8, 9, 10];
+      const sourceHeaderRow = sheet.getRow(4);
+      const sourceStyleRow = sheet.getRow(7);
+      const sourceHeaderStyles = Array.from({ length: 10 }, (_, index) =>
+        cloneExcelModel(sourceHeaderRow.getCell(index + 1).style),
+      );
+      const sourceStyles = Array.from({ length: 10 }, (_, index) =>
+        cloneExcelModel(sourceStyleRow.getCell(index + 1).style),
+      );
+      const sourceValidations = Array.from({ length: 10 }, (_, index) =>
+        cloneExcelModel(sourceStyleRow.getCell(index + 1).dataValidation),
+      );
+      const sourceWidths = Array.from({ length: 10 }, (_, index) =>
+        sheet.getColumn(index + 1).width,
+      );
+
+      trackerHeaders.forEach((header, index) => {
+        const outputColumn = index + 1;
+        const sourceColumn = sourceColumnForOutput[index];
+        const cell = sourceHeaderRow.getCell(outputColumn);
+        cell.style = cloneExcelModel(sourceHeaderStyles[sourceColumn - 1]);
+        cell.value = header;
+        cell.alignment = {
+          ...cell.alignment,
+          horizontal: "center",
+          vertical: "top",
+          wrapText: true,
+        };
+      });
+
+      const outputWidths = [
+        sourceWidths[0],
+        sourceWidths[1],
+        sourceWidths[2],
+        31,
+        sourceWidths[3],
+        sourceWidths[4],
+        sourceWidths[5],
+        sourceWidths[6],
+        sourceWidths[7],
+        sourceWidths[8],
+        sourceWidths[9],
+      ];
+      outputWidths.forEach((width, index) => {
+        sheet.getColumn(index + 1).width = width ?? 18;
+      });
+
       const lastTemplateRow = Math.max(306, experts.length + 5);
       for (let rowNumber = 6; rowNumber <= lastTemplateRow; rowNumber += 1) {
         const row = sheet.getRow(rowNumber);
-        for (let column = 1; column <= 9; column += 1) {
+        for (let column = 1; column <= 11; column += 1) {
           const cell = row.getCell(column);
           cell.value = null;
-          const sourceCell = styleSourceRow.getCell(column);
-          cell.style = JSON.parse(JSON.stringify(sourceCell.style));
-          cell.dataValidation = JSON.parse(
-            JSON.stringify(sourceCell.dataValidation ?? {}),
+          const sourceColumn = sourceColumnForOutput[column - 1];
+          cell.style = cloneExcelModel(sourceStyles[sourceColumn - 1]);
+          cell.dataValidation =
+            column === 4
+              ? {}
+              : cloneExcelModel(sourceValidations[sourceColumn - 1]);
+        }
+        row.height = sourceStyleRow.height || 30;
+      }
+
+      const applicationSheet = workbook.worksheets[1];
+      if (applicationSheet) {
+        const noteCell = applicationSheet.getCell("A2");
+        if (typeof noteCell.value === "string") {
+          noteCell.value = noteCell.value.replace(
+            /column B of the tracker/gi,
+            "column C of the tracker",
           );
         }
-        row.height = styleSourceRow.height || 30;
       }
 
       experts.forEach((expert, index) => {
@@ -7017,12 +7145,14 @@ function JaiCasePanel({
           "ThirdBridge",
           new Date(`${expert.dateFound}T12:00:00`),
           expert.applicationCodes.join(", "),
+          jaiApplicationAreaNames(expert).join(", "),
           expert.company,
           expert.status,
           expert.name,
           expert.position,
           expert.cost,
           expert.screening,
+          expert.region,
         ];
         values.forEach((value, valueIndex) => {
           const cell = row.getCell(valueIndex + 1);
@@ -7211,7 +7341,11 @@ function JaiCasePanel({
 
                       <fieldset
                         className={`jai-application-field ${
-                          expert.applicationCodes.length ? "" : "jai-invalid"
+                          expert.applicationCodes.length &&
+                          (!expert.applicationCodes.includes("Other") ||
+                            expert.otherApplication.trim())
+                            ? ""
+                            : "jai-invalid"
                         }`}
                       >
                         <legend>
@@ -7240,6 +7374,51 @@ function JaiCasePanel({
                               </label>
                             );
                           })}
+                          <div
+                            className={`jai-application-other ${
+                              expert.applicationCodes.includes("Other")
+                                ? "is-selected"
+                                : ""
+                            }`}
+                          >
+                            <label
+                              className={`jai-application-option ${
+                                expert.applicationCodes.includes("Other")
+                                  ? "is-selected"
+                                  : ""
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={expert.applicationCodes.includes(
+                                  "Other",
+                                )}
+                                onChange={() =>
+                                  toggleApplication(expert.id, "Other")
+                                }
+                              />
+                              <strong>+</strong>
+                              <span>{t.otherApplication}</span>
+                            </label>
+                            {expert.applicationCodes.includes("Other") && (
+                              <input
+                                className={
+                                  !expert.otherApplication.trim()
+                                    ? "jai-invalid"
+                                    : ""
+                                }
+                                value={expert.otherApplication}
+                                onChange={(event) =>
+                                  updateExpert(
+                                    expert.id,
+                                    "otherApplication",
+                                    event.target.value,
+                                  )
+                                }
+                                placeholder={t.otherApplicationPlaceholder}
+                              />
+                            )}
+                          </div>
                         </div>
                       </fieldset>
 
@@ -7311,7 +7490,6 @@ function JaiCasePanel({
                       <label className="jai-wide-field">
                         <span>{t.screening}</span>
                         <textarea
-                          className={!expert.screening ? "jai-invalid" : ""}
                           value={expert.screening}
                           onChange={(event) =>
                             updateExpert(
@@ -7321,6 +7499,16 @@ function JaiCasePanel({
                             )
                           }
                           spellCheck={false}
+                        />
+                      </label>
+                      <label className="jai-wide-field jai-region-field">
+                        <span>{t.region}</span>
+                        <input
+                          value={expert.region}
+                          onChange={(event) =>
+                            updateExpert(expert.id, "region", event.target.value)
+                          }
+                          placeholder="Japan, APAC, Global"
                         />
                       </label>
                     </div>
@@ -7420,8 +7608,7 @@ function JaiAccessGate({
     setChecking(true);
     setError("");
     try {
-      const passwordHash = jaiAccessHash(password);
-      if (passwordHash !== JAI_ACCESS_HASH) {
+      if (jaiAccessHash(password) !== JAI_ACCESS_HASH) {
         setError(t.error);
         return;
       }
@@ -7475,7 +7662,9 @@ function JaiAccessGate({
         <ToolSwitcher active="jai" onSelect={onSelectTool} />
 
         <section className="card jai-access-card">
-          <div className="jai-access-icon" aria-hidden="true">JC</div>
+          <div className="jai-access-icon" aria-hidden="true">
+            JC
+          </div>
           <div className="eyebrow">{t.eyebrow}</div>
           <h2>{t.title}</h2>
           <p>{t.help}</p>
@@ -7490,7 +7679,11 @@ function JaiAccessGate({
               autoComplete="current-password"
               autoFocus
             />
-            {error && <p className="jai-access-error" role="alert">{error}</p>}
+            {error && (
+              <p className="jai-access-error" role="alert">
+                {error}
+              </p>
+            )}
             <button
               className="button button-primary"
               type="submit"
