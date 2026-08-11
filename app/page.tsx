@@ -85,6 +85,76 @@ const JAI_APPLICATION_AREAS = [
   ["N", "Thermoplastic reinforcement"],
 ] as const;
 
+const JAI_ACCESS_SESSION_KEY = "taya-jai-access";
+const JAI_ACCESS_HASH = "4214e389";
+
+const JAI_ACCESS_TEXT = {
+  en: {
+    eyebrow: "RESTRICTED ACCESS",
+    title: "Jai case is password protected",
+    help: "Enter the authorised user password to open the client tracker.",
+    label: "Password",
+    placeholder: "Enter password",
+    unlock: "Unlock Jai case",
+    checking: "Checking…",
+    error: "The password is incorrect. Please try again.",
+    privacy: "This restriction applies only to Jai case. Other Taya Tool features remain public.",
+  },
+  ja: {
+    eyebrow: "制限付きアクセス",
+    title: "Jai caseはパスワードで保護されています",
+    help: "クライアント用トラッカーを開くには、利用者パスワードを入力してください。",
+    label: "パスワード",
+    placeholder: "パスワードを入力",
+    unlock: "Jai caseを開く",
+    checking: "確認中…",
+    error: "パスワードが正しくありません。もう一度お試しください。",
+    privacy: "アクセス制限はJai caseのみに適用されます。ほかの機能は引き続き公開されています。",
+  },
+  zh_cn: {
+    eyebrow: "受限访问",
+    title: "Jai case 已设置密码",
+    help: "请输入授权用户密码以打开客户追踪表。",
+    label: "密码",
+    placeholder: "请输入密码",
+    unlock: "打开 Jai case",
+    checking: "正在验证…",
+    error: "密码不正确，请重试。",
+    privacy: "访问限制仅适用于 Jai case，其他 Taya Tool 功能仍然公开。",
+  },
+  zh_tw: {
+    eyebrow: "受限存取",
+    title: "Jai case 已設定密碼",
+    help: "請輸入授權使用者密碼以開啟客戶追蹤表。",
+    label: "密碼",
+    placeholder: "請輸入密碼",
+    unlock: "開啟 Jai case",
+    checking: "正在驗證…",
+    error: "密碼不正確，請重試。",
+    privacy: "存取限制僅適用於 Jai case，其他 Taya Tool 功能仍然公開。",
+  },
+  mn: {
+    eyebrow: "ХЯЗГААРЛАЛТТАЙ ХАНДАЛТ",
+    title: "Jai case нууц үгээр хамгаалагдсан",
+    help: "Харилцагчийн tracker-ийг нээхийн тулд зөвшөөрөгдсөн нууц үгийг оруулна уу.",
+    label: "Нууц үг",
+    placeholder: "Нууц үг оруулах",
+    unlock: "Jai case нээх",
+    checking: "Шалгаж байна…",
+    error: "Нууц үг буруу байна. Дахин оролдоно уу.",
+    privacy: "Энэ хязгаарлалт зөвхөн Jai case-д хамаарна. Taya Tool-ийн бусад хэсэг нээлттэй хэвээр байна.",
+  },
+} as const;
+
+function jaiAccessHash(value: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
 const JAI_TEXT = {
   en: {
     version: "v1.2",
@@ -7325,10 +7395,128 @@ function JaiCasePanel({
   );
 }
 
+function JaiAccessGate({
+  theme,
+  language,
+  onToggleTheme,
+  onLanguageChange,
+  onSelectTool,
+  onUnlock,
+}: {
+  theme: "light" | "dark";
+  language: NaviLanguage;
+  onToggleTheme: () => void;
+  onLanguageChange: (language: NaviLanguage) => void;
+  onSelectTool: (tool: ToolView) => void;
+  onUnlock: () => void;
+}) {
+  const t = JAI_ACCESS_TEXT[language];
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [checking, setChecking] = useState(false);
+
+  async function unlock(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setChecking(true);
+    setError("");
+    try {
+      const passwordHash = jaiAccessHash(password);
+      if (passwordHash !== JAI_ACCESS_HASH) {
+        setError(t.error);
+        return;
+      }
+      window.sessionStorage.setItem(JAI_ACCESS_SESSION_KEY, "granted");
+      onUnlock();
+    } catch (unlockError) {
+      console.error(unlockError);
+      setError(t.error);
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  return (
+    <main className="app-shell jai-shell">
+      <div className="container">
+        <header className="topbar">
+          <div>
+            <div className="eyebrow">TAYA TOOL</div>
+            <h1>Jai case</h1>
+            <p className="subtitle">Client Expert Tracker</p>
+          </div>
+          <div className="controls">
+            <label className="sr-only" htmlFor="jai-access-language">
+              Language
+            </label>
+            <select
+              id="jai-access-language"
+              value={language}
+              onChange={(event) =>
+                onLanguageChange(event.target.value as NaviLanguage)
+              }
+            >
+              <option value="en">English</option>
+              <option value="ja">日本語</option>
+              <option value="zh_cn">中文（简体）</option>
+              <option value="zh_tw">中文（繁體）</option>
+              <option value="mn">Монгол</option>
+            </select>
+            <button
+              className="theme-toggle"
+              type="button"
+              onClick={onToggleTheme}
+              aria-label="Toggle theme"
+            >
+              {theme === "light" ? "🌙" : "☀️"}
+            </button>
+          </div>
+        </header>
+
+        <ToolSwitcher active="jai" onSelect={onSelectTool} />
+
+        <section className="card jai-access-card">
+          <div className="jai-access-icon" aria-hidden="true">JC</div>
+          <div className="eyebrow">{t.eyebrow}</div>
+          <h2>{t.title}</h2>
+          <p>{t.help}</p>
+          <form className="jai-access-form" onSubmit={unlock}>
+            <label htmlFor="jai-access-password">{t.label}</label>
+            <input
+              id="jai-access-password"
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder={t.placeholder}
+              autoComplete="current-password"
+              autoFocus
+            />
+            {error && <p className="jai-access-error" role="alert">{error}</p>}
+            <button
+              className="button button-primary"
+              type="submit"
+              disabled={checking || !password}
+            >
+              {checking ? t.checking : t.unlock}
+            </button>
+          </form>
+        </section>
+
+        <div className="privacy-note jai-privacy-note jai-access-note">
+          <span aria-hidden="true">🔒</span>
+          {t.privacy}
+        </div>
+
+        <footer>Taya Tool · Jai case</footer>
+      </div>
+    </main>
+  );
+}
+
 export default function Home() {
   const [activeTool, setActiveTool] = useState<ToolView>("excel");
   const [language, setLanguage] = useState<NaviLanguage>("en");
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [jaiUnlocked, setJaiUnlocked] = useState(false);
   const [workflowMode, setWorkflowMode] = useState<WorkflowMode>("create");
   const [raw, setRaw] = useState("");
   const [records, setRecords] = useState<ExpertRecord[]>([]);
@@ -7360,6 +7548,12 @@ export default function Home() {
         ? "zh"
         : "en";
   const t = translations[expertLanguage];
+
+  useEffect(() => {
+    setJaiUnlocked(
+      window.sessionStorage.getItem(JAI_ACCESS_SESSION_KEY) === "granted",
+    );
+  }, []);
 
   useEffect(() => {
     const savedLanguage = window.localStorage.getItem(GLOBAL_LANGUAGE_KEY);
@@ -8291,6 +8485,21 @@ export default function Home() {
   }
 
   if (activeTool === "jai") {
+    if (!jaiUnlocked) {
+      return (
+        <>
+          <JaiAccessGate
+            theme={theme}
+            language={language}
+            onToggleTheme={changeTheme}
+            onLanguageChange={changeLanguage}
+            onSelectTool={setActiveTool}
+            onUnlock={() => setJaiUnlocked(true)}
+          />
+          <BreakGame language={language} />
+        </>
+      );
+    }
     return (
       <>
         <JaiCasePanel
