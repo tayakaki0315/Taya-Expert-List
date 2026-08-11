@@ -7038,15 +7038,16 @@ function JaiCasePanel({
       const sheet = workbook.getWorksheet("Expert tracker");
       if (!sheet) throw new Error("Expert tracker sheet was not found.");
 
-      // Keep only the title and header area frozen. Row 6 contains the first
-      // expert and must scroll normally with the remaining expert rows.
+      // Freeze only through the actual header row. Keeping row 5 and the first
+      // expert row (row 6) below the pane avoids Excel clients treating the
+      // first expert as part of the frozen area.
       sheet.views = [
         {
           state: "frozen",
           xSplit: 0,
-          ySplit: 5,
-          topLeftCell: "A6",
-          activeCell: "A6",
+          ySplit: 4,
+          topLeftCell: "A5",
+          activeCell: "A5",
           showGridLines: true,
         },
       ];
