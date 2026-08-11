@@ -7021,9 +7021,13 @@ function JaiCasePanel({
     setNotice("");
     setNoticeType("");
     try {
+      const templateUrl = new URL(
+        "BCG-ThirdBridge-ExpertTracker.xlsx?v=1.6",
+        window.location.href,
+      );
       const [{ Workbook }, templateResponse] = await Promise.all([
         import("exceljs"),
-        fetch("/BCG-ThirdBridge-ExpertTracker.xlsx?v=1.5"),
+        fetch(templateUrl),
       ]);
       if (!templateResponse.ok) {
         throw new Error(`Template request failed: ${templateResponse.status}`);
